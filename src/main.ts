@@ -46,7 +46,7 @@ function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget) {
 
 async function main() {
   const settings = await invoke<Settings>("get_settings").catch(() => null);
-  const enabled = settings?.enabled_widgets ?? ["system", "conductor"];
+  const enabled = settings?.enabled_widgets ?? ["cpu", "ram", "gpu", "disk", "conductor"];
   const row = document.getElementById("strip")!;
 
   for (const widget of widgetsFor(enabled)) {

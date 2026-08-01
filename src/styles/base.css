@@ -122,6 +122,19 @@ body {
   min-width: 90px;
 }
 
+.fly-row .proc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fly-subtitle {
+  font-size: 11px;
+  opacity: 0.55;
+  margin: 10px 0 2px;
+}
+
 .fly-row .val {
   font-variant-numeric: tabular-nums;
   opacity: 0.9;

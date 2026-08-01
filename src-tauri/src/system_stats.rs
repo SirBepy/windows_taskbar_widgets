@@ -1,6 +1,7 @@
 use serde::Serialize;
-use std::sync::Mutex;
-use sysinfo::{Disks, System};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use sysinfo::{Disks, ProcessesToUpdate, System};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Clone, Serialize, Default)]
@@ -102,6 +103,57 @@ pub fn spawn_poller(app: AppHandle) {
             std::thread::sleep(std::time::Duration::from_secs(poll_s as u64));
         }
     });
+}
+
+#[derive(Clone, Serialize)]
+pub struct ProcRow {
+    pub name: String,
+    pub pct_or_bytes: f64,
+    pub count: u32,
+}
+
+// Dedicated instance kept warm across calls: consecutive refreshes need to see the
+// same process set to compute a meaningful cpu% delta. Only touched on hover, never
+// from the 2s poller (a full process refresh is comparatively expensive).
+static PROC_SYS: OnceLock<Mutex<System>> = OnceLock::new();
+
+#[tauri::command]
+pub fn get_top_processes(metric: String) -> Vec<ProcRow> {
+    let sys_mutex = PROC_SYS.get_or_init(|| Mutex::new(System::new()));
+    let Ok(mut sys) = sys_mutex.lock() else { return Vec::new() };
+
+    sys.refresh_processes(ProcessesToUpdate::All, true);
+    if metric == "cpu" {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+    }
+
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f64;
+
+    let mut grouped: HashMap<String, (f64, u32)> = HashMap::new();
+    for proc in sys.processes().values() {
+        let name = proc.name().to_string_lossy().to_string();
+        let value = if metric == "ram" {
+            proc.memory() as f64
+        } else {
+            proc.cpu_usage() as f64
+        };
+        let entry = grouped.entry(name).or_insert((0.0, 0));
+        entry.0 += value;
+        entry.1 += 1;
+    }
+
+    let mut rows: Vec<ProcRow> = grouped
+        .into_iter()
+        .map(|(name, (sum, count))| ProcRow {
+            name,
+            pct_or_bytes: if metric == "cpu" { sum / cores } else { sum },
+            count,
+        })
+        .collect();
+    rows.sort_by(|a, b| b.pct_or_bytes.total_cmp(&a.pct_or_bytes));
+    rows.truncate(5);
+    rows
 }
 
 #[cfg(target_os = "windows")]

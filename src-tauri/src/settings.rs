@@ -18,7 +18,13 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             left_margin: 12,
-            enabled_widgets: vec!["system".to_string(), "conductor".to_string()],
+            enabled_widgets: vec![
+                "cpu".to_string(),
+                "ram".to_string(),
+                "gpu".to_string(),
+                "disk".to_string(),
+                "conductor".to_string(),
+            ],
             stats_poll_seconds: 2,
             kit: KitSettings::default(),
         }
@@ -30,7 +36,16 @@ pub struct SettingsState(pub Mutex<Settings>);
 const SETTINGS_FILENAME: &str = "settings.json";
 
 pub fn load(app: &AppHandle) -> Settings {
-    tauri_kit_settings::load_for::<_, Settings>(app, SETTINGS_FILENAME).unwrap_or_default()
+    let mut settings =
+        tauri_kit_settings::load_for::<_, Settings>(app, SETTINGS_FILENAME).unwrap_or_default();
+    // Pre-split "system" widget id: expand in place so existing tile order/position is kept.
+    if let Some(i) = settings.enabled_widgets.iter().position(|id| id == "system") {
+        settings.enabled_widgets.splice(
+            i..=i,
+            ["cpu", "ram", "gpu", "disk"].map(String::from),
+        );
+    }
+    settings
 }
 
 pub fn persist(app: &AppHandle, settings: &Settings) -> Result<(), String> {
