@@ -67,6 +67,19 @@ export function fmtBytes(bytes: number, digits = 1): string {
   return `${gb.toFixed(digits)} GB`;
 }
 
+// Shared with main.ts's drag-to-reorder handling: widgets that wire their own
+// click handlers (e.g. conductor's per-account dials) need to suppress the
+// click that follows a drag's pointerup, same as wireFlyoutHover does.
+let dragging = false;
+
+export function isDragging(): boolean {
+  return dragging;
+}
+
+export function setDragging(v: boolean): void {
+  dragging = v;
+}
+
 /** "2h 14m" until an RFC3339 instant; empty when past or missing. */
 export function fmtCountdown(resetsAt: string | null | undefined): string {
   if (!resetsAt) return "";

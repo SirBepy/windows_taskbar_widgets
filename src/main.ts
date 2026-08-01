@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { Settings, TaskbarWidget } from "./shared/widget";
+import { isDragging, setDragging, Settings, TaskbarWidget } from "./shared/widget";
 
 reportErrors("strip");
 
@@ -19,7 +19,6 @@ let tileCleanups: (() => void)[] = [];
 // Shared across tiles (only one can be hovered/dragged at a time) so drag-start
 // can cancel a pending hover-open without each tile tracking its own timer.
 let flyoutOpenTimer: number | undefined;
-let dragging = false;
 
 // Returns a "force" fn that re-reports even when the width is unchanged, so a
 // changed left_margin (which set_strip_width also applies) still repositions.
@@ -43,7 +42,7 @@ function reportStripWidth(row: HTMLElement): () => void {
 function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
   if (!widget.flyout) return () => {};
   const onEnter = () => {
-    if (dragging) return;
+    if (isDragging()) return;
     flyoutOpenTimer = window.setTimeout(() => {
       const r = tile.getBoundingClientRect();
       invoke("open_flyout", {
@@ -111,7 +110,7 @@ function wireDrag(tile: HTMLElement) {
     if (!isDragging) {
       if (Math.abs(e.clientX - startX) < DRAG_THRESHOLD_PX) return;
       isDragging = true;
-      dragging = true;
+      setDragging(true);
       window.clearTimeout(flyoutOpenTimer);
       tile.setPointerCapture(pointerId);
       tile.classList.add("dragging");
@@ -128,7 +127,7 @@ function wireDrag(tile: HTMLElement) {
       invoke("reorder_widgets", { order }).catch(() => {});
     }
     isDragging = false;
-    dragging = false;
+    setDragging(false);
     pointerId = null;
   };
   tile.addEventListener("pointerup", endDrag);

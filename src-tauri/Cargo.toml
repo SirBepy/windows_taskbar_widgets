@@ -20,6 +20,10 @@ log = "0.4"
 sysinfo = "0.33"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tauri_kit_settings = { path = "../vendor/tauri_kit/tauri/settings" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect"] }
+futures-util = { version = "0.3", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nvml-wrapper = "0.10"

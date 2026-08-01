@@ -3,9 +3,10 @@ import { conductorWidget } from "./conductor";
 import { cpuWidget } from "./cpu";
 import { diskWidget } from "./disk";
 import { gpuWidget } from "./gpu";
+import { pomodoroWidget } from "./pomodoro";
 import { ramWidget } from "./ram";
 
-const ALL: TaskbarWidget[] = [cpuWidget, ramWidget, gpuWidget, diskWidget, conductorWidget];
+const ALL: TaskbarWidget[] = [cpuWidget, ramWidget, gpuWidget, diskWidget, conductorWidget, pomodoroWidget];
 
 export function widgetsFor(enabledIds: string[]): TaskbarWidget[] {
   return enabledIds

@@ -1,3 +1,5 @@
+mod bridge_conductor;
+mod bridge_pomodoro;
 mod conductor_data;
 mod flyout;
 mod settings;
@@ -101,6 +103,7 @@ pub fn run() {
         // get_settings before setup() runs when the vite server is already warm.
         .manage(SettingsState(Mutex::new(Settings::default())))
         .manage(system_stats::StatsState(Mutex::new(Default::default())))
+        .manage(bridge_pomodoro::new_state())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("strip") {
                 let _ = w.show();
@@ -133,6 +136,8 @@ pub fn run() {
                 let _ = win.show();
             }
             system_stats::spawn_poller(handle.clone());
+            bridge_conductor::spawn(handle.clone());
+            bridge_pomodoro::spawn(handle.clone());
             if let Err(e) = build_tray(&handle) {
                 eprintln!("failed to build tray: {e}");
             }
@@ -165,6 +170,8 @@ pub fn run() {
             system_stats::get_system_stats,
             system_stats::get_top_processes,
             conductor_data::get_conductor_usage,
+            bridge_conductor::conductor_refresh_now,
+            bridge_pomodoro::pomodoro_cmd,
             tile_menu::show_tile_menu,
             tile_menu::open_dashboard,
             tile_menu::open_task_manager,

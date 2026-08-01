@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { html, render, svg } from "lit-html";
-import { fmtCountdown, TaskbarWidget } from "../shared/widget";
+import { fmtCountdown, isDragging, TaskbarWidget } from "../shared/widget";
 
 interface AccountUsage {
   id: string;
@@ -18,9 +19,49 @@ interface ConductorUsage {
   accounts: AccountUsage[];
 }
 
+// conductor_data.rs's fallback id when accounts.json is empty (single legacy entry).
+const LEGACY_ID = "legacy";
+
+// Raw WS push params (bridge_conductor.rs's Frame.params, conductor's own
+// UsageSnapshot shape) - null account_id means the legacy single-entry.
+interface LiveUsageSnapshot {
+  captured_at: string;
+  five_hour: { utilization: number; resets_at: string | null };
+  seven_day: { utilization: number; resets_at: string | null };
+  account_id: string | null;
+}
+
 const POLL_MS = 30_000;
 
+// Label/colour come from the last DB poll; a snapshot for an unknown account
+// (no poll yet, or a brand-new account not in that snapshot) is dropped.
+function mergeLive(current: ConductorUsage | null, snap: LiveUsageSnapshot): ConductorUsage | null {
+  if (!current) return current;
+  const targetId = snap.account_id ?? LEGACY_ID;
+  let changed = false;
+  const accounts = current.accounts.map((a) => {
+    if (a.id !== targetId) return a;
+    changed = true;
+    return {
+      ...a,
+      captured_at: snap.captured_at,
+      five_hour_pct: snap.five_hour.utilization,
+      five_hour_resets_at: snap.five_hour.resets_at,
+      seven_day_pct: snap.seven_day.utilization,
+      seven_day_resets_at: snap.seven_day.resets_at,
+    };
+  });
+  return changed ? { ...current, accounts } : current;
+}
+
+function requestRefresh(e: Event) {
+  e.stopPropagation();
+  if (isDragging()) return;
+  invoke("conductor_refresh_now").catch(() => {});
+}
+
 // Mirrors conductor's own dual-ring dial: outer = 5h window, inner = 7d window.
+// Clicking re-triggers a live claude.ai poll (fire-and-forget).
 function miniDial(a: AccountUsage) {
   const ring = (r: number, w: number, pct: number, opacity: number) => {
     const c = 2 * Math.PI * r;
@@ -35,7 +76,7 @@ function miniDial(a: AccountUsage) {
     `;
   };
   return svg`
-    <svg class="dial" width="30" height="30" viewBox="0 0 32 32">
+    <svg class="dial" width="30" height="30" viewBox="0 0 32 32" @click=${requestRefresh}>
       <title>${a.label}: 5h ${a.five_hour_pct.toFixed(0)}% · 7d ${a.seven_day_pct.toFixed(0)}%</title>
       ${ring(13, 3.4, a.five_hour_pct, 0.95)}
       ${ring(8, 2.6, a.seven_day_pct, 0.7)}
@@ -88,17 +129,33 @@ function flyoutTemplate(u: ConductorUsage | null) {
   `;
 }
 
+// Base: 30s DB poll (source of truth for account label/colour). On top of
+// that, "conductor-usage-live" WS pushes merge in and repaint immediately -
+// the poll interval stays as the fallback when the daemon bridge is down.
 function subscribe(onData: (u: ConductorUsage) => void): () => void {
   let disposed = false;
+  let current: ConductorUsage | null = null;
+  const emit = () => {
+    if (!disposed && current) onData(current);
+  };
   const refresh = () =>
     invoke<ConductorUsage>("get_conductor_usage").then((u) => {
-      if (!disposed) onData(u);
+      current = u;
+      emit();
     });
   refresh();
   const poll = setInterval(refresh, POLL_MS);
+  const unlisten = listen<LiveUsageSnapshot>("conductor-usage-live", (e) => {
+    const merged = mergeLive(current, e.payload);
+    if (merged) {
+      current = merged;
+      emit();
+    }
+  });
   return () => {
     disposed = true;
     clearInterval(poll);
+    unlisten.then((un) => un());
   };
 }
 
