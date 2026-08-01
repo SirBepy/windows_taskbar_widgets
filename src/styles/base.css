@@ -1,0 +1,184 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  height: 100%;
+  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  color: #e8e8e8;
+  user-select: none;
+  cursor: default;
+}
+
+/* ---------- strip ---------- */
+
+#strip {
+  display: inline-flex;
+  align-items: stretch;
+  height: 100vh;
+  gap: 2px;
+  padding: 4px 2px;
+  white-space: nowrap;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  transition: background 120ms ease;
+}
+
+.tile:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.tile .ph {
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat .val {
+  font-variant-numeric: tabular-nums;
+}
+
+.stat .unit {
+  opacity: 0.55;
+  font-size: 10px;
+}
+
+.stat.warn .val {
+  color: #f0b232;
+}
+
+.stat.hot .val {
+  color: #f04747;
+}
+
+/* mini conductor dials */
+
+.dials {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dial {
+  display: block;
+}
+
+/* ---------- flyout ---------- */
+
+.flyout-body {
+  padding: 4px;
+}
+
+#flyout {
+  height: 100%;
+  /* Fully opaque: partial alpha over a transparent Tauri window composites
+     stale framebuffer garbage on WebView2. */
+  background: rgb(30, 30, 32);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.fly-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fly-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12px;
+}
+
+.fly-row .label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 90px;
+}
+
+.fly-row .val {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.bar > div {
+  height: 100%;
+  border-radius: 3px;
+  background: #4f9cf9;
+}
+
+.bar.warn > div {
+  background: #f0b232;
+}
+
+.bar.hot > div {
+  background: #f04747;
+}
+
+.acct {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 8px 0;
+}
+
+.acct:first-of-type {
+  border-top: none;
+}
+
+.acct-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.acct-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.muted {
+  opacity: 0.55;
+}
+
+.empty {
+  font-size: 12px;
+  opacity: 0.6;
+  padding: 8px 0;
+}

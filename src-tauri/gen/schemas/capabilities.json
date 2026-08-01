@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Both app windows may use core APIs (events, window info).","local":true,"windows":["strip","flyout"],"permissions":["core:default"]}}

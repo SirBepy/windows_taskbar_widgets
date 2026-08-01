@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Taskbar Widgets",
+  "version": "0.1.0",
+  "identifier": "com.sirbepy.taskbar-widgets",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:3002",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "strip",
+        "url": "index.html",
+        "title": "Taskbar Widgets",
+        "width": 320,
+        "height": 48,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "shadow": false,
+        "visible": false
+      },
+      {
+        "label": "flyout",
+        "url": "flyout.html",
+        "title": "Widget Flyout",
+        "width": 340,
+        "height": 400,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "shadow": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "SirBepy"
+  }
+}

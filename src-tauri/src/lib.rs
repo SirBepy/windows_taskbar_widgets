@@ -1,0 +1,153 @@
+mod conductor_data;
+mod flyout;
+mod settings;
+mod system_stats;
+mod taskbar;
+
+use settings::{Settings, SettingsState};
+use std::sync::Mutex;
+use tauri::{
+    image::Image,
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager,
+};
+
+#[tauri::command]
+fn get_settings(state: tauri::State<SettingsState>) -> Settings {
+    state.0.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, new_settings: Settings) -> Result<(), String> {
+    settings::persist(&app, &new_settings)?;
+    let state = app.state::<SettingsState>();
+    if let Ok(mut s) = state.0.lock() {
+        *s = new_settings;
+    }
+    Ok(())
+}
+
+/// The strip hugs its content: JS reports the row's CSS width after each render.
+#[tauri::command]
+fn set_strip_width(app: AppHandle, width_css: f64) -> Result<(), String> {
+    taskbar::position_strip(&app, width_css.max(1.0)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+/// Webview consoles aren't visible in supervised dev runs; both pages forward
+/// window.onerror / unhandled rejections here.
+#[tauri::command]
+fn log_js(level: String, msg: String) {
+    match level.as_str() {
+        "error" => log::error!("js: {msg}"),
+        _ => log::info!("js: {msg}"),
+    }
+}
+
+fn toggle_strip(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("strip") else { return };
+    if w.is_visible().unwrap_or(false) {
+        let _ = w.hide();
+        flyout::close_flyout(app.clone());
+    } else {
+        let _ = w.show();
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&quit])?;
+    let icon: Image = match app.default_window_icon() {
+        Some(i) => i.clone(),
+        None => Image::from_bytes(include_bytes!("../icons/32x32.png"))?,
+    };
+    TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
+        .tooltip("Taskbar Widgets")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| {
+            if event.id.as_ref() == "quit" {
+                app.exit(0);
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                toggle_strip(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        // Managed on the Builder, not in setup(): the strip webview can invoke
+        // get_settings before setup() runs when the vite server is already warm.
+        .manage(SettingsState(Mutex::new(Settings::default())))
+        .manage(system_stats::StatsState(Mutex::new(Default::default())))
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("strip") {
+                let _ = w.show();
+            }
+        }))
+        // Same targets as tauri_kit_settings::with_logging() (kit_copy_logs reads
+        // <log-dir>/app.log), but capped at Info: the wmi crate TRACE-logs every
+        // thermal query, which with KeepAll rotation would grow logs unbounded.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir { file_name: Some("app".into()) },
+                ))
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .max_file_size(5_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let settings = settings::load(&handle);
+            log::info!("app started; version={}", env!("CARGO_PKG_VERSION"));
+            if let Ok(mut s) = handle.state::<SettingsState>().0.lock() {
+                *s = settings;
+            }
+
+            let _ = taskbar::position_strip(&handle, 320.0);
+            if let Some(win) = handle.get_webview_window("strip") {
+                let _ = win.show();
+            }
+            system_stats::spawn_poller(handle.clone());
+            if let Err(e) = build_tray(&handle) {
+                eprintln!("failed to build tray: {e}");
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_settings,
+            save_settings,
+            set_strip_width,
+            quit_app,
+            log_js,
+            flyout::open_flyout,
+            flyout::close_flyout,
+            flyout::get_current_flyout_widget,
+            flyout::flyout_zone,
+            system_stats::get_system_stats,
+            conductor_data::get_conductor_usage,
+            tauri_kit_settings::kit_copy_logs,
+            tauri_kit_settings::kit_reset_settings,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
