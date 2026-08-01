@@ -41,6 +41,17 @@
         "maximizable": false,
         "shadow": false,
         "visible": false
+      },
+      {
+        "label": "dashboard",
+        "url": "dashboard.html",
+        "title": "Taskbar Widgets - Dashboard",
+        "width": 780,
+        "height": 560,
+        "decorations": true,
+        "resizable": true,
+        "center": true,
+        "visible": false
       }
     ],
     "security": {

@@ -1,9 +1,9 @@
 import "@phosphor-icons/web/regular";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { widgetsFor, widgetById } from "./widgets/registry";
+import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { TaskbarWidget } from "./shared/widget";
+import { Settings, TaskbarWidget } from "./shared/widget";
 
 reportErrors("strip");
 
@@ -14,12 +14,6 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 const HOVER_OPEN_DELAY_MS = 250;
 const DRAG_THRESHOLD_PX = 6;
 
-interface Settings {
-  left_margin: number;
-  enabled_widgets: string[];
-  stats_poll_seconds: number;
-}
-
 let row: HTMLElement;
 let tileCleanups: (() => void)[] = [];
 // Shared across tiles (only one can be hovered/dragged at a time) so drag-start
@@ -27,8 +21,10 @@ let tileCleanups: (() => void)[] = [];
 let flyoutOpenTimer: number | undefined;
 let dragging = false;
 
-function reportStripWidth(row: HTMLElement) {
-  let last = 0;
+// Returns a "force" fn that re-reports even when the width is unchanged, so a
+// changed left_margin (which set_strip_width also applies) still repositions.
+function reportStripWidth(row: HTMLElement): () => void {
+  let last = -1;
   const push = () => {
     const w = Math.ceil(row.scrollWidth) + 4;
     if (w !== last) {
@@ -38,6 +34,10 @@ function reportStripWidth(row: HTMLElement) {
   };
   new ResizeObserver(push).observe(row);
   push();
+  return () => {
+    last = -1;
+    push();
+  };
 }
 
 function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
@@ -153,14 +153,24 @@ function renderTiles(ids: string[]) {
 
 async function main() {
   const settings = await invoke<Settings>("get_settings").catch(() => null);
-  const enabled = settings?.enabled_widgets ?? ["cpu", "ram", "gpu", "disk", "conductor"];
+  let enabled = settings?.enabled_widgets ?? ["cpu", "ram", "gpu", "disk", "conductor"];
+  const hidden = settings?.hidden_widgets ?? [];
+  // New registry widgets (added after a user's settings.json was written) default
+  // to visible: adopt them into enabled_widgets once, unless already hidden.
+  const newIds = allWidgetIds().filter((id) => !enabled.includes(id) && !hidden.includes(id));
+  if (newIds.length > 0) {
+    enabled = [...enabled, ...newIds];
+    invoke("reorder_widgets", { order: enabled }).catch(() => {});
+  }
   row = document.getElementById("strip")!;
 
   renderTiles(enabled);
+  const forceReport = reportStripWidth(row);
 
   listen("widgets-changed", async () => {
     const s = await invoke<Settings>("get_settings").catch(() => null);
     if (s) renderTiles(s.enabled_widgets);
+    forceReport();
   });
   listen<{ widget_id: string; item_id: string }>("tile-menu-action", (e) => {
     widgetById(e.payload.widget_id)?.onMenuAction?.(e.payload.item_id);
@@ -172,8 +182,6 @@ async function main() {
   document.documentElement.addEventListener("mouseleave", () => {
     invoke("flyout_zone", { zone: "strip", inside: false }).catch(() => {});
   });
-
-  reportStripWidth(row);
 }
 
 main();

@@ -1,3 +1,14 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+export interface ConfigField {
+  key: string;
+  label: string;
+  type: "toggle" | "number" | "select";
+  options?: { value: string; label: string }[];
+  default?: unknown;
+}
+
 // v1 widget contract. Built-ins implement this directly; the planned external
 // manifest/bundle loader will adapt third-party widgets onto this same shape.
 export interface TaskbarWidget {
@@ -11,6 +22,43 @@ export interface TaskbarWidget {
   /** Extra entries appended to this tile's native context menu. */
   menuItems?: () => { id: string; label: string }[];
   onMenuAction?: (id: string) => void;
+  /** Rows rendered in the dashboard's per-widget config accordion. */
+  configFields?: () => ConfigField[];
+}
+
+export interface Settings {
+  left_margin: number;
+  enabled_widgets: string[];
+  hidden_widgets: string[];
+  stats_poll_seconds: number;
+  widget_config: Record<string, Record<string, unknown>>;
+}
+
+/** settings.widget_config[id], defaulting to {} when unset. */
+export function widgetConfig(
+  settings: Settings | null | undefined,
+  id: string,
+): Record<string, unknown> {
+  return settings?.widget_config?.[id] ?? {};
+}
+
+/** Latest settings immediately, then live updates on "widgets-changed". */
+export function subscribeSettings(onSettings: (s: Settings) => void): () => void {
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  const refresh = () =>
+    invoke<Settings>("get_settings").then((s) => {
+      if (!disposed) onSettings(s);
+    }).catch(() => {});
+  refresh();
+  listen("widgets-changed", refresh).then((un) => {
+    if (disposed) un();
+    else unlisten = un;
+  });
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
 }
 
 export function fmtBytes(bytes: number, digits = 1): string {

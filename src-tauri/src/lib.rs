@@ -11,7 +11,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager, WindowEvent,
 };
 
 #[tauri::command]
@@ -26,6 +26,9 @@ fn save_settings(app: AppHandle, new_settings: Settings) -> Result<(), String> {
     if let Ok(mut s) = state.0.lock() {
         *s = new_settings;
     }
+    // Broadcast (not emit_to "strip"): the flyout window also renders widget_config
+    // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
+    let _ = app.emit("widgets-changed", ());
     Ok(())
 }
 
@@ -61,8 +64,9 @@ fn toggle_strip(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&quit])?;
+    let menu = Menu::with_items(app, &[&dashboard, &quit])?;
     let icon: Image = match app.default_window_icon() {
         Some(i) => i.clone(),
         None => Image::from_bytes(include_bytes!("../icons/32x32.png"))?,
@@ -72,10 +76,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("Taskbar Widgets")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            if event.id.as_ref() == "quit" {
-                app.exit(0);
-            }
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "quit" => app.exit(0),
+            "dashboard" => tile_menu::open_dashboard(app.clone(), None),
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
@@ -138,6 +142,16 @@ pub fn run() {
         // same global listener list (tauri fires every listener for every menu
         // event), so each handler namespaces its ids and ignores the rest.
         .on_menu_event(tile_menu::handle_menu_event)
+        // The dashboard is a real window (taskbar-visible), so closing it via the X
+        // must hide, not destroy, or the app would need a full window rebuild to reopen.
+        .on_window_event(|window, event| {
+            if window.label() == "dashboard" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,

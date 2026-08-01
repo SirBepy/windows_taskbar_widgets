@@ -48,10 +48,15 @@ pub fn show_tile_menu(
     menu.popup(window).map_err(|e| e.to_string())
 }
 
+// Hide moves the id into hidden_widgets rather than dropping it, so re-enabling
+// from the dashboard doesn't need to guess at where a widget used to sit.
 fn hide_widget(app: &AppHandle, widget_id: &str) {
     let state = app.state::<SettingsState>();
     let Ok(mut s) = state.0.lock() else { return };
     s.enabled_widgets.retain(|w| w != widget_id);
+    if !s.hidden_widgets.iter().any(|w| w == widget_id) {
+        s.hidden_widgets.push(widget_id.to_string());
+    }
     let _ = settings::persist(app, &s);
     let _ = app.emit_to("strip", "widgets-changed", ());
 }
@@ -93,12 +98,18 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     }
 }
 
-/// Stub: a dashboard window ships in a later change. Signature stays stable so
-/// the "Edit this widget" wiring doesn't need to change when it lands.
+#[derive(Clone, Serialize)]
+struct DashboardNavigate {
+    section: Option<String>,
+}
+
+/// Shows + focuses the dashboard window and tells it which section to expand.
 #[tauri::command]
 pub fn open_dashboard(app: AppHandle, section: Option<String>) {
-    let _ = &app;
-    log::info!("dashboard requested: {section:?}");
+    let Some(win) = app.get_webview_window("dashboard") else { return };
+    let _ = win.show();
+    let _ = win.set_focus();
+    let _ = app.emit_to("dashboard", "dashboard-navigate", DashboardNavigate { section });
 }
 
 #[cfg(target_os = "windows")]

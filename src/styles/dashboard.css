@@ -1,0 +1,133 @@
+/* Decorated, opaque window: base.css leaves html/body transparent for the
+   strip/flyout, so this overrides to a solid dark background here. */
+.dashboard-body {
+  background: rgb(24, 24, 26);
+  height: 100vh;
+  overflow: hidden;
+  cursor: auto;
+}
+
+.dash {
+  display: flex;
+  height: 100vh;
+}
+
+.dash-nav {
+  width: 150px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nav-item {
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dash-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 28px 40px;
+}
+
+.dash-content h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 24px 0 12px;
+}
+
+.dash-content h2:first-child {
+  margin-top: 0;
+}
+
+.widget-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 8px 0;
+}
+
+.widget-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.widget-head .name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.widget-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.widget-actions button {
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: inherit;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.widget-actions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.widget-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.widget-config {
+  padding: 10px 0 4px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  max-width: 360px;
+  cursor: auto;
+}
+
+.field-row input[type="number"],
+.field-row select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: inherit;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  width: 140px;
+}
+
+.field-row input[type="checkbox"] {
+  accent-color: #4f9cf9;
+}
+
+.empty {
+  padding: 20px;
+  opacity: 0.6;
+  font-size: 13px;
+}

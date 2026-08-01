@@ -1,25 +1,30 @@
 import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
-import { fmtBytes, TaskbarWidget } from "../shared/widget";
+import { ConfigField, fmtBytes, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
 import { barRow, heat, subscribeStats, SystemStats } from "./system-shared";
 
-function tileTemplate(s: SystemStats | null) {
+function tileTemplate(s: SystemStats | null, showTemp: boolean) {
   if (!s?.gpu) return html``;
   return html`
     <span class="stat ${heat(s.gpu.util_pct)}">
       <i class="ph ph-graphics-card"></i>
       <span class="val">${s.gpu.util_pct}%</span>
-      <span class="unit">${s.gpu.temp_c}°</span>
+      ${showTemp ? html`<span class="unit">${s.gpu.temp_c}°</span>` : null}
     </span>
   `;
 }
 
-function flyoutTemplate(s: SystemStats | null) {
+function flyoutTemplate(s: SystemStats | null, showTemp: boolean) {
   if (!s) return html`<div class="empty">Collecting stats…</div>`;
   if (!s.gpu) return html`<div class="empty">No discrete GPU detected.</div>`;
   return html`
     <div class="fly-title"><i class="ph ph-graphics-card"></i>GPU</div>
-    ${barRow("ph-graphics-card", `GPU · ${s.gpu.temp_c}°C`, s.gpu.util_pct, `${s.gpu.util_pct}%`)}
+    ${barRow(
+      "ph-graphics-card",
+      showTemp ? `GPU · ${s.gpu.temp_c}°C` : "GPU",
+      s.gpu.util_pct,
+      `${s.gpu.util_pct}%`,
+    )}
     ${barRow(
       "ph-graphics-card",
       "VRAM",
@@ -29,6 +34,10 @@ function flyoutTemplate(s: SystemStats | null) {
   `;
 }
 
+const configFields: ConfigField[] = [
+  { key: "show_temp", label: "Show GPU temperature", type: "toggle", default: true },
+];
+
 export const gpuWidget: TaskbarWidget = {
   id: "gpu",
   name: "GPU",
@@ -37,11 +46,40 @@ export const gpuWidget: TaskbarWidget = {
   onMenuAction: (id) => {
     if (id === "task-manager") invoke("open_task_manager").catch(() => {});
   },
+  configFields: () => configFields,
   mountTile(root) {
-    return subscribeStats((s) => render(tileTemplate(s), root));
+    let latestStats: SystemStats | null = null;
+    let showTemp = true;
+    const repaint = () => render(tileTemplate(latestStats, showTemp), root);
+    const stopStats = subscribeStats((s) => {
+      latestStats = s;
+      repaint();
+    });
+    const stopSettings = subscribeSettings((s) => {
+      showTemp = (widgetConfig(s, "gpu").show_temp as boolean | undefined) ?? true;
+      repaint();
+    });
+    return () => {
+      stopStats();
+      stopSettings();
+    };
   },
   mountFlyout(root) {
-    render(flyoutTemplate(null), root);
-    return subscribeStats((s) => render(flyoutTemplate(s), root));
+    render(flyoutTemplate(null, true), root);
+    let latestStats: SystemStats | null = null;
+    let showTemp = true;
+    const repaint = () => render(flyoutTemplate(latestStats, showTemp), root);
+    const stopStats = subscribeStats((s) => {
+      latestStats = s;
+      repaint();
+    });
+    const stopSettings = subscribeSettings((s) => {
+      showTemp = (widgetConfig(s, "gpu").show_temp as boolean | undefined) ?? true;
+      repaint();
+    });
+    return () => {
+      stopStats();
+      stopSettings();
+    };
   },
 };

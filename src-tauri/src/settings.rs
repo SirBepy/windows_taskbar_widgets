@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_kit_settings::KitSettings;
@@ -9,7 +10,12 @@ pub struct Settings {
     // CSS px between the taskbar's left edge and the strip (left side is empty on Win11).
     pub left_margin: u32,
     pub enabled_widgets: Vec<String>,
+    // Widgets a user hid via the tile menu or dashboard; kept (not dropped) so re-enabling
+    // doesn't lose the id or its position semantics.
+    pub hidden_widgets: Vec<String>,
     pub stats_poll_seconds: u32,
+    // Keyed by widget id; each value is that widget's own free-form config object.
+    pub widget_config: HashMap<String, serde_json::Value>,
     #[serde(flatten)]
     pub kit: KitSettings,
 }
@@ -25,7 +31,9 @@ impl Default for Settings {
                 "disk".to_string(),
                 "conductor".to_string(),
             ],
+            hidden_widgets: Vec::new(),
             stats_poll_seconds: 2,
+            widget_config: HashMap::new(),
             kit: KitSettings::default(),
         }
     }

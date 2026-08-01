@@ -16,3 +16,11 @@ export function widgetsFor(enabledIds: string[]): TaskbarWidget[] {
 export function widgetById(id: string): TaskbarWidget | undefined {
   return ALL.find((w) => w.id === id);
 }
+
+export function allWidgets(): TaskbarWidget[] {
+  return ALL;
+}
+
+export function allWidgetIds(): string[] {
+  return ALL.map((w) => w.id);
+}

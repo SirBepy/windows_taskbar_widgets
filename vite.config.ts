@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, "src/index.html"),
         flyout: resolve(import.meta.dirname, "src/flyout.html"),
+        dashboard: resolve(import.meta.dirname, "src/dashboard.html"),
       },
     },
   },
