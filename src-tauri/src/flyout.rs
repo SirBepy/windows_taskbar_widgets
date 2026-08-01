@@ -1,22 +1,57 @@
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 static CURRENT_WIDGET: Mutex<Option<String>> = Mutex::new(None);
 
-// Hover state for the close choreography: the flyout stays open while the pointer
-// is over EITHER the strip tile or the flyout itself; both cold for 300ms closes it.
-pub static STRIP_HOT: AtomicBool = AtomicBool::new(false);
-pub static FLYOUT_HOT: AtomicBool = AtomicBool::new(false);
-static CLOSE_GEN: AtomicU64 = AtomicU64::new(0);
+// Pins each poll loop to the open_flyout/close_flyout call that (in)validated it:
+// a loop reads its own captured gen each tick and exits once POLL_GEN moves past it.
+static POLL_GEN: AtomicU64 = AtomicU64::new(0);
 
-const CLOSE_GRACE_MS: u64 = 300;
+const POLL_INTERVAL_MS: u64 = 150;
+const COLD_CLOSE_MS: u64 = 400;
+const HOVER_PAD_PX: i32 = 10;
 const FLYOUT_GAP_CSS: f64 = 8.0;
 
 #[derive(Clone, Serialize)]
 struct FlyoutShow {
     widget_id: String,
+}
+
+#[derive(Clone, Copy)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl Rect {
+    fn padded(self, pad: i32) -> Rect {
+        Rect {
+            left: self.left - pad,
+            top: self.top - pad,
+            right: self.right + pad,
+            bottom: self.bottom + pad,
+        }
+    }
+
+    fn contains(self, x: i32, y: i32) -> bool {
+        x >= self.left && x < self.right && y >= self.top && y < self.bottom
+    }
+}
+
+fn window_rect(win: &WebviewWindow) -> Option<Rect> {
+    let pos = win.outer_position().ok()?;
+    let size = win.outer_size().ok()?;
+    Some(Rect {
+        left: pos.x,
+        top: pos.y,
+        right: pos.x + size.width as i32,
+        bottom: pos.y + size.height as i32,
+    })
 }
 
 #[tauri::command]
@@ -55,7 +90,9 @@ pub fn open_flyout(
     app.emit_to("flyout", "flyout-show", FlyoutShow { widget_id })
         .map_err(|e| e.to_string())?;
     fly.show().map_err(|e| e.to_string())?;
-    CLOSE_GEN.fetch_add(1, Ordering::SeqCst);
+
+    let gen = POLL_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    spawn_poll_loop(app, gen);
     Ok(())
 }
 
@@ -66,27 +103,72 @@ pub fn get_current_flyout_widget() -> Option<String> {
 
 #[tauri::command]
 pub fn close_flyout(app: AppHandle) {
+    // Invalidate any running poll loop's captured gen so it exits on its next tick.
+    POLL_GEN.fetch_add(1, Ordering::SeqCst);
     if let Some(fly) = app.get_webview_window("flyout") {
         let _ = fly.hide();
     }
 }
 
-#[tauri::command]
-pub fn flyout_zone(app: AppHandle, zone: String, inside: bool) {
-    match zone.as_str() {
-        "strip" => STRIP_HOT.store(inside, Ordering::SeqCst),
-        "flyout" => FLYOUT_HOT.store(inside, Ordering::SeqCst),
-        _ => return,
-    }
-    if !STRIP_HOT.load(Ordering::SeqCst) && !FLYOUT_HOT.load(Ordering::SeqCst) {
-        let gen = CLOSE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(CLOSE_GRACE_MS));
-            let still_cold =
-                !STRIP_HOT.load(Ordering::SeqCst) && !FLYOUT_HOT.load(Ordering::SeqCst);
-            if still_cold && CLOSE_GEN.load(Ordering::SeqCst) == gen {
-                close_flyout(app);
+/// Cursor-polls while the flyout is open: stays open as long as the pointer is
+/// within either window's rect (padded so the strip-to-flyout gap doesn't
+/// flicker-close), closes once cold for COLD_CLOSE_MS.
+#[cfg(target_os = "windows")]
+fn spawn_poll_loop(app: AppHandle, gen: u64) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    fn cursor_pos() -> Option<(i32, i32)> {
+        unsafe {
+            let mut pt: POINT = std::mem::zeroed();
+            if GetCursorPos(&mut pt) == 0 {
+                return None;
             }
-        });
+            Some((pt.x, pt.y))
+        }
     }
+
+    std::thread::spawn(move || {
+        let mut cold_since: Option<Instant> = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+            if POLL_GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            let (Some(strip), Some(fly)) =
+                (app.get_webview_window("strip"), app.get_webview_window("flyout"))
+            else {
+                return;
+            };
+            let hot = cursor_pos().is_some_and(|(x, y)| {
+                window_rect(&strip).is_some_and(|r| r.padded(HOVER_PAD_PX).contains(x, y))
+                    || window_rect(&fly).is_some_and(|r| r.padded(HOVER_PAD_PX).contains(x, y))
+            });
+            if hot {
+                cold_since = None;
+                continue;
+            }
+            let since = *cold_since.get_or_insert(Instant::now());
+            if since.elapsed() >= Duration::from_millis(COLD_CLOSE_MS) {
+                if POLL_GEN.load(Ordering::SeqCst) == gen {
+                    let _ = fly.hide();
+                }
+                return;
+            }
+        }
+    });
+}
+
+// No cursor-polling API available off-Windows: just close on a flat timer so the
+// flyout doesn't stay open forever.
+#[cfg(not(target_os = "windows"))]
+fn spawn_poll_loop(app: AppHandle, gen: u64) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(5));
+        if POLL_GEN.load(Ordering::SeqCst) == gen {
+            if let Some(fly) = app.get_webview_window("flyout") {
+                let _ = fly.hide();
+            }
+        }
+    });
 }

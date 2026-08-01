@@ -30,6 +30,7 @@ nvml-wrapper = "0.10"
 wmi = "0.14"
 windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
 ] }
 

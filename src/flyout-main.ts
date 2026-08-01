@@ -31,10 +31,3 @@ listen<{ widget_id: string }>("flyout-show", (e) => show(e.payload.widget_id));
 // The open_flyout emit can beat this page's listener registration (first open
 // right after launch), so also pull the current id once on load.
 invoke<string | null>("get_current_flyout_widget").then(show).catch(() => {});
-
-document.documentElement.addEventListener("mouseenter", () => {
-  invoke("flyout_zone", { zone: "flyout", inside: true }).catch(() => {});
-});
-document.documentElement.addEventListener("mouseleave", () => {
-  invoke("flyout_zone", { zone: "flyout", inside: false }).catch(() => {});
-});

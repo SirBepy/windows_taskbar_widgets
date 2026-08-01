@@ -166,7 +166,6 @@ pub fn run() {
             flyout::open_flyout,
             flyout::close_flyout,
             flyout::get_current_flyout_widget,
-            flyout::flyout_zone,
             system_stats::get_system_stats,
             system_stats::get_top_processes,
             conductor_data::get_conductor_usage,

@@ -174,13 +174,6 @@ async function main() {
   listen<{ widget_id: string; item_id: string }>("tile-menu-action", (e) => {
     widgetById(e.payload.widget_id)?.onMenuAction?.(e.payload.item_id);
   });
-
-  document.documentElement.addEventListener("mouseenter", () => {
-    invoke("flyout_zone", { zone: "strip", inside: true }).catch(() => {});
-  });
-  document.documentElement.addEventListener("mouseleave", () => {
-    invoke("flyout_zone", { zone: "strip", inside: false }).catch(() => {});
-  });
 }
 
 main();
