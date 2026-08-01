@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
 import { fmtBytes, TaskbarWidget } from "../shared/widget";
 import { barRow, heat, subscribeStats, SystemStats } from "./system-shared";
@@ -32,6 +33,10 @@ export const gpuWidget: TaskbarWidget = {
   id: "gpu",
   name: "GPU",
   flyout: { widthCss: 300, heightCss: 160 },
+  menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
+  onMenuAction: (id) => {
+    if (id === "task-manager") invoke("open_task_manager").catch(() => {});
+  },
   mountTile(root) {
     return subscribeStats((s) => render(tileTemplate(s), root));
   },

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
 import { TaskbarWidget } from "../shared/widget";
 import {
@@ -46,6 +47,10 @@ export const cpuWidget: TaskbarWidget = {
   id: "cpu",
   name: "CPU",
   flyout: { widthCss: 320, heightCss: 300 },
+  menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
+  onMenuAction: (id) => {
+    if (id === "task-manager") invoke("open_task_manager").catch(() => {});
+  },
   mountTile(root) {
     return subscribeStats((s) => render(tileTemplate(s), root));
   },

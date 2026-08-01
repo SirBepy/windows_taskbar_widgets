@@ -3,6 +3,7 @@ mod flyout;
 mod settings;
 mod system_stats;
 mod taskbar;
+mod tile_menu;
 
 use settings::{Settings, SettingsState};
 use std::sync::Mutex;
@@ -133,6 +134,10 @@ pub fn run() {
             }
             Ok(())
         })
+        // Separate registration from the tray's on_menu_event: both land in the
+        // same global listener list (tauri fires every listener for every menu
+        // event), so each handler namespaces its ids and ignores the rest.
+        .on_menu_event(tile_menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
@@ -146,6 +151,11 @@ pub fn run() {
             system_stats::get_system_stats,
             system_stats::get_top_processes,
             conductor_data::get_conductor_usage,
+            tile_menu::show_tile_menu,
+            tile_menu::open_dashboard,
+            tile_menu::open_task_manager,
+            tile_menu::open_explorer,
+            tile_menu::reorder_widgets,
             tauri_kit_settings::kit_copy_logs,
             tauri_kit_settings::kit_reset_settings,
         ])

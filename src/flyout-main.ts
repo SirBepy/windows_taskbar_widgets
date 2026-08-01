@@ -6,6 +6,9 @@ import { reportErrors } from "./shared/report-errors";
 
 reportErrors("flyout");
 
+// No native context/inspect menu anywhere in this app's webviews.
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
 let cleanup: (() => void) | null = null;
 let currentId: string | null = null;
 

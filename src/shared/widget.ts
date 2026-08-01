@@ -8,6 +8,9 @@ export interface TaskbarWidget {
   /** Render the always-visible strip tile. Returns a cleanup fn. */
   mountTile(root: HTMLElement): () => void;
   mountFlyout?(root: HTMLElement): () => void;
+  /** Extra entries appended to this tile's native context menu. */
+  menuItems?: () => { id: string; label: string }[];
+  onMenuAction?: (id: string) => void;
 }
 
 export function fmtBytes(bytes: number, digits = 1): string {

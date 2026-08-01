@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
 import { fmtBytes, TaskbarWidget } from "../shared/widget";
 import { barRow, heat, DiskInfo, subscribeStats, SystemStats } from "./system-shared";
@@ -42,12 +43,24 @@ function flyoutTemplate(s: SystemStats | null) {
   `;
 }
 
+// Set by the tile's stats subscription; read when "Open in Explorer" fires.
+let lastPrimaryDrive: string | null = null;
+
 export const diskWidget: TaskbarWidget = {
   id: "disk",
   name: "Disk",
   flyout: { widthCss: 320, heightCss: 260 },
+  menuItems: () => [{ id: "open-drive", label: "Open in Explorer" }],
+  onMenuAction: (id) => {
+    if (id === "open-drive" && lastPrimaryDrive) {
+      invoke("open_explorer", { path: lastPrimaryDrive }).catch(() => {});
+    }
+  },
   mountTile(root) {
-    return subscribeStats((s) => render(tileTemplate(s), root));
+    return subscribeStats((s) => {
+      lastPrimaryDrive = primaryDisk(s.disks)?.name ?? null;
+      render(tileTemplate(s), root);
+    });
   },
   mountFlyout(root) {
     render(flyoutTemplate(null), root);
