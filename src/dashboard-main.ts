@@ -13,10 +13,21 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 let settings: Settings | null = null;
 let expandedId: string | null = null;
+// Registry is the source of truth (Task Manager's Startup tab can remove the entry),
+// so this lives outside Settings/save_settings, not mirrored into settings.json.
+let autostart = false;
 const root = document.getElementById("dashboard")!;
 
 async function load() {
   settings = await invoke<Settings>("get_settings").catch(() => null);
+  autostart = await invoke<boolean>("get_autostart").catch(() => false);
+  renderAll();
+}
+
+// Re-reads rather than trusting `on`: a failed write must not leave the box ticked.
+async function toggleAutostart(on: boolean) {
+  await invoke("set_autostart", { enabled: on }).catch(() => {});
+  autostart = await invoke<boolean>("get_autostart").catch(() => autostart);
   renderAll();
 }
 
@@ -167,6 +178,14 @@ function renderAll() {
           </section>
           <section id="section-host">
             <h2>Host</h2>
+            <label class="field-row">
+              <span>Start with Windows</span>
+              <input
+                type="checkbox"
+                .checked=${autostart}
+                @change=${(e: Event) => toggleAutostart((e.target as HTMLInputElement).checked)}
+              />
+            </label>
             <label class="field-row">
               <span>Left margin (px)</span>
               <input

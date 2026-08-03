@@ -1,3 +1,4 @@
+mod autostart;
 mod bridge_conductor;
 mod bridge_pomodoro;
 mod conductor_data;
@@ -157,6 +158,8 @@ pub fn run() {
             save_settings,
             set_strip_width,
             log_js,
+            autostart::get_autostart,
+            autostart::set_autostart,
             flyout::open_flyout,
             flyout::close_flyout,
             flyout::get_current_flyout_widget,
