@@ -1,0 +1,80 @@
+name: CI
+
+# Dependency-invariant guard, mirroring pomodoro-overlay's. Runs on every push/PR
+# (not just at release) so a regression is caught the moment it lands. Three checks:
+#   1. the frontend typechecks and builds;
+#   2. the crate compiles on the msvc target, so the `#[cfg(windows)]` code
+#      (SHAppBarMessage positioning, PDH GPU counters, registry autostart) is
+#      actually checked rather than skipped;
+#   3. openssl-sys never enters the dependency tree - it needs a Perl/OpenSSL
+#      toolchain this Windows runner doesn't have, so any crate pulling it in
+#      would silently break the release build. reqwest is pinned to rustls-tls
+#      precisely to avoid it.
+
+on:
+  push:
+    branches: [master]
+    # Doc-only changes can't affect the dependency tree, so skip the Windows run.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".for_bepy/**"
+      - ".claude/**"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".for_bepy/**"
+      - ".claude/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        run: npm run build
+
+  deps:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ci-x86_64-pc-windows-msvc
+          cache-on-failure: true
+
+      - name: Verify crate compiles
+        working-directory: src-tauri
+        run: cargo check --target x86_64-pc-windows-msvc
+
+      - name: Assert no OpenSSL in dependency tree
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          cargo tree -i openssl-sys
+          if ($LASTEXITCODE -eq 0) { Write-Output "openssl-sys leaked into the dependency tree"; exit 1 } else { exit 0 }

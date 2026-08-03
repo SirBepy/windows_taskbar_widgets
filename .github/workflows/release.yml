@@ -1,0 +1,31 @@
+name: Tauri Release
+
+# Thin caller, same shape as pomodoro-overlay's. The pipeline (check -> tag ->
+# build -> sign -> publish installers + updater latest.json) lives in the kit as a
+# reusable workflow. On every push to master it releases if package.json's version
+# has no matching tauri-v<version> tag yet, which pairs with `/commit pushnbump`
+# (the version bump is the release trigger).
+#
+# NOT YET FUNCTIONAL - three prerequisites are outstanding, see
+# .claude/todos/08-cicd-release-prerequisites.md:
+#   1. this repo has no git remote at all; nothing can run until it is on GitHub;
+#   2. repo secrets TAURI_SIGNING_PRIVATE_KEY + TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#      must exist for the signing step (`secrets: inherit` passes them through);
+#   3. tauri.conf.json needs `bundle.createUpdaterArtifacts: true` and a
+#      `plugins.updater` block (endpoint + pubkey) or the latest.json step fails.
+# ci.yml has none of these dependencies and works the moment a remote exists.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: SirBepy/sirbepy_tauri_kit/.github/workflows/tauri-windows-release.yml@main
+    with:
+      tag-prefix: "tauri-v"
+    secrets: inherit
