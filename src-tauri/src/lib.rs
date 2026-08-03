@@ -1,3 +1,4 @@
+mod autohide;
 mod autostart;
 mod bridge_conductor;
 mod bridge_pomodoro;
@@ -56,8 +57,10 @@ fn toggle_strip(app: &AppHandle) {
     if w.is_visible().unwrap_or(false) {
         let _ = w.hide();
         flyout::close_flyout(app.clone());
+        autohide::set_user_hidden(true);
     } else {
         let _ = w.show();
+        autohide::set_user_hidden(false);
     }
 }
 
@@ -132,6 +135,7 @@ pub fn run() {
                 let _ = win.show();
             }
             system_stats::spawn_poller(handle.clone());
+            autohide::spawn_poller(handle.clone());
             bridge_conductor::spawn(handle.clone());
             bridge_pomodoro::spawn(handle.clone());
             if let Err(e) = build_tray(&handle) {

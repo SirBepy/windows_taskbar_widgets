@@ -19,6 +19,22 @@ pub fn taskbar_rect() -> Option<(i32, i32, i32, i32)> {
     None
 }
 
+/// True when the taskbar auto-hides itself: nothing left for the strip to sit on.
+#[cfg(target_os = "windows")]
+pub fn taskbar_autohide() -> bool {
+    use windows_sys::Win32::UI::Shell::{SHAppBarMessage, ABM_GETSTATE, ABS_AUTOHIDE, APPBARDATA};
+    unsafe {
+        let mut abd: APPBARDATA = std::mem::zeroed();
+        abd.cbSize = std::mem::size_of::<APPBARDATA>() as u32;
+        SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32 & ABS_AUTOHIDE != 0
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn taskbar_autohide() -> bool {
+    false
+}
+
 /// Left-anchor the strip over the taskbar's empty left region (Win11 centers
 /// pinned icons, so the left edge is free). Falls back to bottom-left of the
 /// work area when the taskbar rect is unavailable.
