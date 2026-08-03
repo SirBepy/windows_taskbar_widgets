@@ -40,11 +40,6 @@ fn set_strip_width(app: AppHandle, width_css: f64) -> Result<(), String> {
     taskbar::position_strip(&app, width_css.max(1.0)).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn quit_app(app: AppHandle) {
-    app.exit(0);
-}
-
 /// Webview consoles aren't visible in supervised dev runs; both pages forward
 /// window.onerror / unhandled rejections here.
 #[tauri::command]
@@ -161,7 +156,6 @@ pub fn run() {
             get_settings,
             save_settings,
             set_strip_width,
-            quit_app,
             log_js,
             flyout::open_flyout,
             flyout::close_flyout,
