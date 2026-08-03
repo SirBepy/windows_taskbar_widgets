@@ -103,6 +103,8 @@ pub fn run() {
         .manage(SettingsState(Mutex::new(Settings::default())))
         .manage(system_stats::StatsState(Mutex::new(Default::default())))
         .manage(bridge_pomodoro::new_state())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_kit_updater::plugin())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("strip") {
                 let _ = w.show();

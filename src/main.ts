@@ -1,11 +1,16 @@
 import "@phosphor-icons/web/regular";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { runAutoUpdateCheck } from "../vendor/tauri_kit/frontend/updater/auto-check";
 import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
 import { isDragging, setDragging, Settings, TaskbarWidget } from "./shared/widget";
 
 reportErrors("strip");
+
+// Skip in dev: the dev binary lags the released version, so check() would always
+// "find" an update and nag. Reads __kit_auto_update from settings for the mode.
+if (!import.meta.env.DEV) runAutoUpdateCheck();
 
 // No native context/inspect menu anywhere in this app's webviews; tiles wire
 // their own native menu below via show_tile_menu.

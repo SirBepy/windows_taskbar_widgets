@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "All app windows may use core APIs (events, window info).",
   "windows": ["strip", "flyout", "dashboard"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default", "dialog:default"]
 }
