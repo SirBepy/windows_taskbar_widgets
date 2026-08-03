@@ -6,6 +6,8 @@ import {
   heat,
   mountStatsFlyout,
   mountStatsTile,
+  procRow,
+  ProcRow,
   readShowTemp,
   SystemStats,
 } from "./system-shared";
@@ -21,7 +23,7 @@ function tileTemplate(s: SystemStats | null, showTemp: boolean) {
   `;
 }
 
-function flyoutTemplate(s: SystemStats | null, showTemp: boolean) {
+function flyoutTemplate(s: SystemStats | null, showTemp: boolean, procs: ProcRow[]) {
   if (!s) return html`<div class="empty">Collecting stats…</div>`;
   if (!s.gpu) return html`<div class="empty">No discrete GPU detected.</div>`;
   return html`
@@ -38,6 +40,12 @@ function flyoutTemplate(s: SystemStats | null, showTemp: boolean) {
       s.gpu.vram_total_bytes ? (s.gpu.vram_used_bytes / s.gpu.vram_total_bytes) * 100 : 0,
       `${fmtBytes(s.gpu.vram_used_bytes)} / ${fmtBytes(s.gpu.vram_total_bytes, 0)}`,
     )}
+    ${procs.length
+      ? html`
+          <div class="fly-subtitle">Top processes</div>
+          ${procs.map((p) => procRow(p, (v) => `${v.toFixed(0)}%`))}
+        `
+      : null}
   `;
 }
 
@@ -48,7 +56,8 @@ const configFields: ConfigField[] = [
 export const gpuWidget: TaskbarWidget = {
   id: "gpu",
   name: "GPU",
-  flyout: { widthCss: 300, heightCss: 160 },
+  // 30px taller than cpu's flyout: same title/subtitle/5 proc rows, but two bars (GPU + VRAM).
+  flyout: { widthCss: 300, heightCss: 330 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {
     if (id === "task-manager") invoke("open_task_manager").catch(() => {});
@@ -58,6 +67,6 @@ export const gpuWidget: TaskbarWidget = {
     return mountStatsTile(root, "gpu", readShowTemp, tileTemplate);
   },
   mountFlyout(root) {
-    return mountStatsFlyout(root, "gpu", readShowTemp, flyoutTemplate);
+    return mountStatsFlyout(root, "gpu", readShowTemp, flyoutTemplate, "gpu");
   },
 };

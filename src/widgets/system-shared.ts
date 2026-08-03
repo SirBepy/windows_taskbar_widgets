@@ -112,7 +112,7 @@ export function mountStatsFlyout<C>(
   widgetId: string,
   readCfg: (cfg: Record<string, unknown>) => C,
   template: (s: SystemStats | null, cfg: C, procs: ProcRow[]) => TemplateResult,
-  procMetric?: "cpu" | "ram",
+  procMetric?: "cpu" | "ram" | "gpu",
 ): () => void {
   let latest: SystemStats | null = null;
   let procs: ProcRow[] = [];
@@ -142,7 +142,7 @@ export function mountStatsFlyout<C>(
 
 /** Only runs while a flyout has it mounted; each call costs a process refresh on the Rust side. */
 export function subscribeTopProcesses(
-  metric: "cpu" | "ram",
+  metric: "cpu" | "ram" | "gpu",
   onRows: (rows: ProcRow[]) => void,
 ): () => void {
   let disposed = false;
