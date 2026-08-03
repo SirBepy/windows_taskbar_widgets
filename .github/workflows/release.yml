@@ -2,7 +2,7 @@ name: Tauri Release
 
 # Thin caller, same shape as pomodoro-overlay's. The pipeline (check -> tag ->
 # build -> sign -> publish installers + updater latest.json) lives in the kit as a
-# reusable workflow. On every push to master it releases if package.json's version
+# reusable workflow. On every push to main it releases if package.json's version
 # has no matching tauri-v<version> tag yet, which pairs with `/commit pushnbump`
 # (the version bump is the release trigger).
 #
@@ -17,7 +17,7 @@ name: Tauri Release
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

@@ -13,7 +13,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     # Doc-only changes can't affect the dependency tree, so skip the Windows run.
     paths-ignore:
       - "**/*.md"
