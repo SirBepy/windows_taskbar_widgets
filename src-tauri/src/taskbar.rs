@@ -19,19 +19,49 @@ pub fn taskbar_rect() -> Option<(i32, i32, i32, i32)> {
     None
 }
 
-/// True when the taskbar auto-hides itself: nothing left for the strip to sit on.
+// An auto-hide taskbar slid off screen still leaves a ~2px sliver behind, so
+// "is it on screen" has to be a real overlap test, not a nonzero one.
 #[cfg(target_os = "windows")]
-pub fn taskbar_autohide() -> bool {
-    use windows_sys::Win32::UI::Shell::{SHAppBarMessage, ABM_GETSTATE, ABS_AUTOHIDE, APPBARDATA};
+const SLIVER_PX: i32 = 8;
+
+/// True when the taskbar is not on screen right now. Deliberately checks the LIVE
+/// window, not ABM_GETSTATE's auto-hide flag: that flag reports the mode, so it
+/// stays set while the user hovers and the taskbar is actually slid in and visible.
+#[cfg(target_os = "windows")]
+pub fn taskbar_hidden() -> bool {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, GetWindowRect, IsWindowVisible,
+    };
+
     unsafe {
-        let mut abd: APPBARDATA = std::mem::zeroed();
-        abd.cbSize = std::mem::size_of::<APPBARDATA>() as u32;
-        SHAppBarMessage(ABM_GETSTATE, &mut abd) as u32 & ABS_AUTOHIDE != 0
+        let class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
+        let tray = FindWindowW(class.as_ptr(), std::ptr::null());
+        // Explorer restarting destroys and recreates Shell_TrayWnd; re-finding it
+        // every call is what lets the strip come back on its own afterwards.
+        if tray.is_null() || IsWindowVisible(tray) == 0 {
+            return true;
+        }
+
+        let mut rc: RECT = std::mem::zeroed();
+        let monitor = MonitorFromWindow(tray, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetWindowRect(tray, &mut rc) == 0 || GetMonitorInfoW(monitor, &mut mi) == 0 {
+            return false;
+        }
+
+        let overlap_h = rc.bottom.min(mi.rcMonitor.bottom) - rc.top.max(mi.rcMonitor.top);
+        let overlap_w = rc.right.min(mi.rcMonitor.right) - rc.left.max(mi.rcMonitor.left);
+        overlap_h.min(overlap_w) < SLIVER_PX
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn taskbar_autohide() -> bool {
+pub fn taskbar_hidden() -> bool {
     false
 }
 

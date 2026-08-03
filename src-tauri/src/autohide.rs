@@ -6,14 +6,16 @@ use tauri::{AppHandle, Manager};
 // so the poll below must skip entirely rather than auto-show it back.
 static USER_HIDDEN: AtomicBool = AtomicBool::new(false);
 
-const POLL_INTERVAL_MS: u64 = 500;
+// 250ms rather than 500: this is also how fast the strip reappears when an
+// auto-hide taskbar slides back in, and the taskbar's own animation is ~200ms.
+const POLL_INTERVAL_MS: u64 = 250;
 
 pub fn set_user_hidden(hidden: bool) {
     USER_HIDDEN.store(hidden, Ordering::SeqCst);
 }
 
-/// Hides the strip while the taskbar auto-hides or a fullscreen app owns the
-/// foreground, shows it again once both clear. Never runs while user-hidden.
+/// The strip mirrors the taskbar's own visibility. Re-asserts topmost every tick:
+/// the taskbar is topmost too, and whichever asserted it last wins.
 pub fn spawn_poller(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
@@ -21,18 +23,45 @@ pub fn spawn_poller(app: AppHandle) {
             continue;
         }
         let Some(win) = app.get_webview_window("strip") else { continue };
-        let hide_needed = crate::taskbar::taskbar_autohide() || foreground_fullscreen();
+        let hide_needed = crate::taskbar::taskbar_hidden() || foreground_fullscreen();
         let visible = win.is_visible().unwrap_or(true);
         if hide_needed && visible {
             let _ = win.hide();
             // An open flyout is its own always-on-top window; hiding only the strip
             // would leave it floating over the fullscreen app.
             crate::flyout::close_flyout(app.clone());
-        } else if !hide_needed && !visible {
-            let _ = win.show();
+        } else if !hide_needed {
+            if !visible {
+                let _ = win.show();
+            }
+            raise_topmost(&win);
         }
     });
 }
+
+/// Explorer restarts and fullscreen transitions silently demote a topmost window,
+/// and Windows never restores it; re-asserting is the only way back up.
+#[cfg(target_os = "windows")]
+fn raise_topmost(win: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    let Ok(hwnd) = win.hwnd() else { return };
+    unsafe {
+        SetWindowPos(
+            hwnd.0 as _,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn raise_topmost(_win: &tauri::WebviewWindow) {}
 
 /// SHQueryUserNotificationState catches D3D/presentation/busy fullscreen; it misses
 /// some borderless fullscreen, so fall back to foreground-window-covers-monitor.
