@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { html, render, svg } from "lit-html";
 import { fmtCountdown, isDragging, TaskbarWidget } from "../shared/widget";
+import { heat } from "./system-shared";
 
 interface AccountUsage {
   id: string;
@@ -96,7 +97,7 @@ function windowRow(name: string, pct: number, resetsAt: string | null) {
   return html`
     <div class="fly-row">
       <span class="label">${name}</span>
-      <div class="bar ${pct >= 90 ? "hot" : pct >= 70 ? "warn" : ""}">
+      <div class="bar ${heat(pct)}">
         <div style="width:${Math.min(100, pct)}%"></div>
       </div>
       <span class="val">${pct.toFixed(0)}%${cd ? html` <span class="muted">· ${cd}</span>` : ""}</span>
