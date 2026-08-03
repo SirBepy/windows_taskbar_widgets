@@ -1,7 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { html, render } from "lit-html";
-import { ConfigField, fmtBytes, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
-import { barRow, heat, subscribeStats, SystemStats } from "./system-shared";
+import { html } from "lit-html";
+import { ConfigField, fmtBytes, TaskbarWidget } from "../shared/widget";
+import {
+  barRow,
+  heat,
+  mountStatsFlyout,
+  mountStatsTile,
+  readShowTemp,
+  SystemStats,
+} from "./system-shared";
 
 function tileTemplate(s: SystemStats | null, showTemp: boolean) {
   if (!s?.gpu) return html``;
@@ -48,38 +55,9 @@ export const gpuWidget: TaskbarWidget = {
   },
   configFields: () => configFields,
   mountTile(root) {
-    let latestStats: SystemStats | null = null;
-    let showTemp = true;
-    const repaint = () => render(tileTemplate(latestStats, showTemp), root);
-    const stopStats = subscribeStats((s) => {
-      latestStats = s;
-      repaint();
-    });
-    const stopSettings = subscribeSettings((s) => {
-      showTemp = (widgetConfig(s, "gpu").show_temp as boolean | undefined) ?? true;
-      repaint();
-    });
-    return () => {
-      stopStats();
-      stopSettings();
-    };
+    return mountStatsTile(root, "gpu", readShowTemp, tileTemplate);
   },
   mountFlyout(root) {
-    render(flyoutTemplate(null, true), root);
-    let latestStats: SystemStats | null = null;
-    let showTemp = true;
-    const repaint = () => render(flyoutTemplate(latestStats, showTemp), root);
-    const stopStats = subscribeStats((s) => {
-      latestStats = s;
-      repaint();
-    });
-    const stopSettings = subscribeSettings((s) => {
-      showTemp = (widgetConfig(s, "gpu").show_temp as boolean | undefined) ?? true;
-      repaint();
-    });
-    return () => {
-      stopStats();
-      stopSettings();
-    };
+    return mountStatsFlyout(root, "gpu", readShowTemp, flyoutTemplate);
   },
 };

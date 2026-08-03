@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { html } from "lit-html";
+import { html, render, TemplateResult } from "lit-html";
+import { subscribeSettings, widgetConfig } from "../shared/widget";
 
 export interface DiskInfo {
   name: string;
@@ -71,6 +72,71 @@ export function subscribeStats(onStats: (s: SystemStats) => void): () => void {
   return () => {
     disposed = true;
     unlisten?.();
+  };
+}
+
+/** readCfg for the show_temp toggle cpu and gpu both expose. */
+export const readShowTemp = (cfg: Record<string, unknown>): boolean =>
+  (cfg.show_temp as boolean | undefined) ?? true;
+
+/**
+ * Stats + settings + repaint wiring, shared by the cpu/gpu tiles. readCfg maps this
+ * widget's config blob to whatever its template needs, so readCfg({}) yields defaults.
+ */
+export function mountStatsTile<C>(
+  root: HTMLElement,
+  widgetId: string,
+  readCfg: (cfg: Record<string, unknown>) => C,
+  template: (s: SystemStats | null, cfg: C) => TemplateResult,
+): () => void {
+  let latest: SystemStats | null = null;
+  let cfg = readCfg({});
+  const repaint = () => render(template(latest, cfg), root);
+  const stopStats = subscribeStats((s) => {
+    latest = s;
+    repaint();
+  });
+  const stopSettings = subscribeSettings((s) => {
+    cfg = readCfg(widgetConfig(s, widgetId));
+    repaint();
+  });
+  return () => {
+    stopStats();
+    stopSettings();
+  };
+}
+
+/** Same, plus the empty-state paint before data lands and an optional top-process feed. */
+export function mountStatsFlyout<C>(
+  root: HTMLElement,
+  widgetId: string,
+  readCfg: (cfg: Record<string, unknown>) => C,
+  template: (s: SystemStats | null, cfg: C, procs: ProcRow[]) => TemplateResult,
+  procMetric?: "cpu" | "ram",
+): () => void {
+  let latest: SystemStats | null = null;
+  let procs: ProcRow[] = [];
+  let cfg = readCfg({});
+  const repaint = () => render(template(latest, cfg, procs), root);
+  repaint();
+  const stopStats = subscribeStats((s) => {
+    latest = s;
+    repaint();
+  });
+  const stopProcs = procMetric
+    ? subscribeTopProcesses(procMetric, (rows) => {
+        procs = rows;
+        repaint();
+      })
+    : null;
+  const stopSettings = subscribeSettings((s) => {
+    cfg = readCfg(widgetConfig(s, widgetId));
+    repaint();
+  });
+  return () => {
+    stopStats();
+    stopProcs?.();
+    stopSettings();
   };
 }
 

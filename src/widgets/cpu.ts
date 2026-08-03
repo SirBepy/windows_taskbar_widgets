@@ -1,13 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { html, render } from "lit-html";
-import { ConfigField, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
+import { html } from "lit-html";
+import { ConfigField, TaskbarWidget } from "../shared/widget";
 import {
   barRow,
   heat,
+  mountStatsFlyout,
+  mountStatsTile,
   procRow,
   ProcRow,
-  subscribeStats,
-  subscribeTopProcesses,
+  readShowTemp,
   SystemStats,
 } from "./system-shared";
 
@@ -24,7 +25,7 @@ function tileTemplate(s: SystemStats | null, showTemp: boolean) {
   `;
 }
 
-function flyoutTemplate(s: SystemStats | null, procs: ProcRow[], showTemp: boolean) {
+function flyoutTemplate(s: SystemStats | null, showTemp: boolean, procs: ProcRow[]) {
   if (!s) return html`<div class="empty">Collecting stats…</div>`;
   return html`
     <div class="fly-title"><i class="ph ph-cpu"></i>CPU</div>
@@ -57,44 +58,9 @@ export const cpuWidget: TaskbarWidget = {
   },
   configFields: () => configFields,
   mountTile(root) {
-    let latestStats: SystemStats | null = null;
-    let showTemp = true;
-    const repaint = () => render(tileTemplate(latestStats, showTemp), root);
-    const stopStats = subscribeStats((s) => {
-      latestStats = s;
-      repaint();
-    });
-    const stopSettings = subscribeSettings((s) => {
-      showTemp = (widgetConfig(s, "cpu").show_temp as boolean | undefined) ?? true;
-      repaint();
-    });
-    return () => {
-      stopStats();
-      stopSettings();
-    };
+    return mountStatsTile(root, "cpu", readShowTemp, tileTemplate);
   },
   mountFlyout(root) {
-    render(flyoutTemplate(null, [], true), root);
-    let latestStats: SystemStats | null = null;
-    let latestProcs: ProcRow[] = [];
-    let showTemp = true;
-    const repaint = () => render(flyoutTemplate(latestStats, latestProcs, showTemp), root);
-    const stopStats = subscribeStats((s) => {
-      latestStats = s;
-      repaint();
-    });
-    const stopProcs = subscribeTopProcesses("cpu", (rows) => {
-      latestProcs = rows;
-      repaint();
-    });
-    const stopSettings = subscribeSettings((s) => {
-      showTemp = (widgetConfig(s, "cpu").show_temp as boolean | undefined) ?? true;
-      repaint();
-    });
-    return () => {
-      stopStats();
-      stopProcs();
-      stopSettings();
-    };
+    return mountStatsFlyout(root, "cpu", readShowTemp, flyoutTemplate, "cpu");
   },
 };
