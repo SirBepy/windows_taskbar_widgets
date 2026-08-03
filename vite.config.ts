@@ -16,7 +16,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3002,
+    // Must match tauri.conf.json's devUrl. Moved off 3002 in Aug 2026: zng-api's
+    // payment service binds it, and strictPort makes that collision fatal.
+    port: 3102,
     strictPort: true,
   },
   clearScreen: false,
