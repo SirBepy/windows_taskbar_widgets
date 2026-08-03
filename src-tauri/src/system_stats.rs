@@ -141,13 +141,7 @@ pub fn get_top_processes(metric: String) -> Vec<ProcRow> {
             entry.0 += pct;
             entry.1 += 1;
         }
-        let mut rows: Vec<ProcRow> = grouped
-            .into_iter()
-            .map(|(name, (sum, count))| ProcRow { name, pct_or_bytes: sum, count })
-            .collect();
-        rows.sort_by(|a, b| b.pct_or_bytes.total_cmp(&a.pct_or_bytes));
-        rows.truncate(5);
-        return rows;
+        return top5(grouped, |sum| sum);
     }
 
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f64;
@@ -165,13 +159,14 @@ pub fn get_top_processes(metric: String) -> Vec<ProcRow> {
         entry.1 += 1;
     }
 
+    top5(grouped, |sum| if metric == "cpu" { sum / cores } else { sum })
+}
+
+/// Shared tail of every metric: scale the summed value, rank desc, keep the top 5.
+fn top5(grouped: HashMap<String, (f64, u32)>, scale: impl Fn(f64) -> f64) -> Vec<ProcRow> {
     let mut rows: Vec<ProcRow> = grouped
         .into_iter()
-        .map(|(name, (sum, count))| ProcRow {
-            name,
-            pct_or_bytes: if metric == "cpu" { sum / cores } else { sum },
-            count,
-        })
+        .map(|(name, (sum, count))| ProcRow { name, pct_or_bytes: scale(sum), count })
         .collect();
     rows.sort_by(|a, b| b.pct_or_bytes.total_cmp(&a.pct_or_bytes));
     rows.truncate(5);

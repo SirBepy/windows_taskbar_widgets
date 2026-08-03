@@ -106,6 +106,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("strip") {
                 let _ = w.show();
+                // Without this the flag stays true after a tray-hide + relaunch, and the
+                // autohide poller skips every tick for the rest of the session.
+                autohide::set_user_hidden(false);
             }
         }))
         // Same targets as tauri_kit_settings::with_logging() (kit_copy_logs reads
