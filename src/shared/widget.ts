@@ -35,6 +35,12 @@ export interface Settings {
   widget_config: Record<string, Record<string, unknown>>;
 }
 
+/** Sets --widget-opacity, the 0-100 setting as a CSS alpha. */
+export function applyOpacity(settings: Settings | null | undefined): void {
+  const pct = settings?.opacity ?? 100;
+  document.documentElement.style.setProperty("--widget-opacity", String(pct / 100));
+}
+
 /** settings.widget_config[id], defaulting to {} when unset. */
 export function widgetConfig(
   settings: Settings | null | undefined,

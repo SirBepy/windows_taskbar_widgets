@@ -91,8 +91,6 @@ fn raise_topmost(_win: &tauri::WebviewWindow) {}
 /// WS_EX_TOPMOST never clears on a same-band reorder, so it cannot tell whether the
 /// strip fell out of the band. Windows keeps every topmost window above every
 /// non-topmost one, so a VISIBLE NON-topmost window above the strip proves it did.
-/// Deliberately tolerates other topmost windows above it, so a video player's
-/// always-on-top mode is not shoved back four times a second.
 #[cfg(target_os = "windows")]
 fn still_in_topmost_band(hwnd: isize) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -108,6 +106,8 @@ fn still_in_topmost_band(hwnd: isize) -> bool {
             if IsWindowVisible(cur) == 0 {
                 continue;
             }
+            // Tolerating other topmost windows above is the point: it stops a video
+            // player's always-on-top mode being shoved back four times a second.
             if GetWindowLongW(cur, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0 {
                 return false;
             }

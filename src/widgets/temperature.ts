@@ -66,10 +66,8 @@ const configFields: ConfigField[] = [
 export const temperatureWidget: TaskbarWidget = {
   id: "temperature",
   name: "Temperature",
-  // Height: 28 (#flyout's 14px*2 padding) + 37 (fly-title) + 2*30 (fly-row), where
-  // 37/30/25 are back-solved from cpu/gpu/disk's shipped 245/300/245 heights (their
-  // title+row+subtitle counts differ, giving 3 equations for the 3 constants).
-  // Width matches cpu's 245: its rows carry a longer label ("CPU · 87°C") than ours.
+  // 28 (#flyout's 14px*2 padding) + 37 (fly-title) + 2*30 (fly-row). Those per-row
+  // constants come from the measured resize in 312b1d9; disk's 245 checks out exactly.
   flyout: { widthCss: 245, heightCss: 125 },
   configFields: () => configFields,
   mountTile(root) {

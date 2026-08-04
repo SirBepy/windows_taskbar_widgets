@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { runAutoUpdateCheck } from "../vendor/tauri_kit/frontend/updater/auto-check";
 import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { isDragging, setDragging, Settings, TaskbarWidget } from "./shared/widget";
+import { applyOpacity, isDragging, setDragging, Settings, TaskbarWidget } from "./shared/widget";
 
 reportErrors("strip");
 
@@ -137,11 +137,6 @@ function wireDrag(tile: HTMLElement) {
   };
   tile.addEventListener("pointerup", endDrag);
   tile.addEventListener("pointercancel", endDrag);
-}
-
-// 0-100 setting -> CSS alpha; inherited by .tile via var(--widget-opacity).
-function applyOpacity(s: Settings | null) {
-  document.documentElement.style.setProperty("--widget-opacity", String((s?.opacity ?? 100) / 100));
 }
 
 function renderTiles(ids: string[]) {

@@ -3,15 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { Settings } from "./shared/widget";
+import { applyOpacity, Settings } from "./shared/widget";
 
 reportErrors("flyout");
 
 // #flyout itself stays fully opaque (see its comment in base.css); only
-// .flyout-content, layered on that solid background, reads this setting.
-function applyOpacity(s: Settings | null) {
-  document.documentElement.style.setProperty("--widget-opacity", String((s?.opacity ?? 100) / 100));
-}
+// .flyout-content, layered on that solid background, reads this var.
 const refreshOpacity = () => invoke<Settings>("get_settings").then(applyOpacity).catch(() => {});
 refreshOpacity();
 listen("widgets-changed", refreshOpacity);
