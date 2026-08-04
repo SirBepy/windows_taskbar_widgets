@@ -96,6 +96,64 @@ body {
   text-align: right;
 }
 
+/* ---------- stat tiles (cpu/ram/gpu/disk): label above value, divided ---------- */
+
+.tile-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.tile-label {
+  font-size: 9px;
+  line-height: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.tile-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.tile-pct {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tile-unit {
+  font-size: 9px;
+  opacity: 0.55;
+}
+
+/* min-width alone doesn't stop jitter: proportional digits (e.g. "1" narrower
+   than "0") still shift inside a 3ch box, so tabular-nums must pair with it.
+   +2px pads past a measured sub-pixel gap where 3ch computes marginally
+   narrower than 3 actual tabular glyphs in Segoe UI Variable. */
+.tile-pct .num,
+.tile-unit .num {
+  display: inline-block;
+  min-width: calc(3ch + 2px);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.tile-stat.warn .tile-pct {
+  color: #f0b232;
+}
+
+.tile-stat.hot .tile-pct {
+  color: #f04747;
+}
+
 /* mini conductor dials */
 
 .dials {

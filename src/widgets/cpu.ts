@@ -15,13 +15,15 @@ import {
 function tileTemplate(s: SystemStats | null, showTemp: boolean) {
   if (!s) return html`<span class="muted">…</span>`;
   return html`
-    <span class="stat ${heat(s.cpu_pct)}">
-      <i class="ph ph-cpu"></i>
-      <span class="val">${s.cpu_pct.toFixed(0)}%</span>
-      ${s.cpu_temp_c != null && showTemp
-        ? html`<span class="unit">${s.cpu_temp_c.toFixed(0)}°</span>`
-        : null}
-    </span>
+    <div class="tile-stat ${heat(s.cpu_pct)}">
+      <span class="tile-label">CPU</span>
+      <span class="tile-value">
+        <span class="tile-pct"><span class="num">${s.cpu_pct.toFixed(0)}</span>%</span>
+        ${s.cpu_temp_c != null && showTemp
+          ? html`<span class="tile-unit"><span class="num">${s.cpu_temp_c.toFixed(0)}</span>°</span>`
+          : null}
+      </span>
+    </div>
   `;
 }
 

@@ -17,15 +17,17 @@ function tileTemplate(s: SystemStats | null, showPercent: boolean) {
   if (!s) return html`<span class="muted">…</span>`;
   const memPct = s.mem_total_bytes ? (s.mem_used_bytes / s.mem_total_bytes) * 100 : 0;
   return html`
-    <span class="stat ${heat(memPct)}">
-      <i class="ph ph-memory"></i>
-      ${showPercent
-        ? html`<span class="val">${memPct.toFixed(0)}%</span>`
-        : html`
-            <span class="val">${(s.mem_used_bytes / 1024 ** 3).toFixed(1)}</span>
-            <span class="unit">/${(s.mem_total_bytes / 1024 ** 3).toFixed(0)} GB</span>
-          `}
-    </span>
+    <div class="tile-stat ${heat(memPct)}">
+      <span class="tile-label">RAM</span>
+      <span class="tile-value">
+        ${showPercent
+          ? html`<span class="tile-pct"><span class="num">${memPct.toFixed(0)}</span>%</span>`
+          : html`
+              <span class="tile-pct">${(s.mem_used_bytes / 1024 ** 3).toFixed(1)}</span>
+              <span class="tile-unit">/${(s.mem_total_bytes / 1024 ** 3).toFixed(0)} GB</span>
+            `}
+      </span>
+    </div>
   `;
 }
 

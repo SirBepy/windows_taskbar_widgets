@@ -3,10 +3,13 @@
 ## Fixed-size rule
 
 Once a widget tile or flyout overlay is mounted, its footprint must not change size: not on
-hover, not on content change, not on toggling a config option. A widget whose content length
-can vary (a process list, a drive list) must size for its MAX case at declare time, not resize
-live. Overflow beyond that max scrolls inside the fixed box (`#flyout`'s `overflow-y: auto`),
-it never grows the window.
+hover, not on content change. A widget whose content length can vary (a process list, a drive
+list) must size for its MAX case at declare time, not resize live. Overflow beyond that max
+scrolls inside the fixed box (`#flyout`'s `overflow-y: auto`), it never grows the window.
+
+Distinction: a live value change (a stat updating, data arriving) must never resize. A config
+toggle (`show_temp`, `show_percent`, `tile_drive`) MAY resize once, as a deliberate user action,
+since that is a one-time choice, not a live update.
 
 Joe: "we gotta setup a rule for any widgets going forward... they shouldnt be changing
 sizes... thats too obtrusive."

@@ -26,11 +26,15 @@ const readCfg = (cfg: Record<string, unknown>): GpuCfg => ({
 function tileTemplate(s: SystemStats | null, cfg: GpuCfg) {
   if (!s?.gpu) return html``;
   return html`
-    <span class="stat ${heat(s.gpu.util_pct)}">
-      <i class="ph ph-graphics-card"></i>
-      <span class="val">${s.gpu.util_pct}%</span>
-      ${cfg.showTemp ? html`<span class="unit">${s.gpu.temp_c}°</span>` : null}
-    </span>
+    <div class="tile-stat ${heat(s.gpu.util_pct)}">
+      <span class="tile-label">GPU</span>
+      <span class="tile-value">
+        <span class="tile-pct"><span class="num">${s.gpu.util_pct}</span>%</span>
+        ${cfg.showTemp
+          ? html`<span class="tile-unit"><span class="num">${s.gpu.temp_c}</span>°</span>`
+          : null}
+      </span>
+    </div>
   `;
 }
 

@@ -30,11 +30,17 @@ function tileTemplate(s: SystemStats | null, tileDrive: string | undefined, show
   const usedPct = d.total_bytes ? ((d.total_bytes - d.free_bytes) / d.total_bytes) * 100 : 0;
   const freePct = d.total_bytes ? (d.free_bytes / d.total_bytes) * 100 : 0;
   return html`
-    <span class="stat ${heat(usedPct)}">
-      <i class="ph ph-hard-drives"></i>
-      <span class="val">${showPercent ? `${freePct.toFixed(0)}%` : fmtBytes(d.free_bytes, 0)}</span>
-      <span class="unit">free</span>
-    </span>
+    <div class="tile-stat ${heat(usedPct)}">
+      <span class="tile-label">DISK</span>
+      <span class="tile-value">
+        ${showPercent
+          ? html`<span class="tile-pct"><span class="num">${freePct.toFixed(0)}</span>%</span>`
+          : html`
+              <span class="tile-pct">${fmtBytes(d.free_bytes, 0)}</span>
+              <span class="tile-unit">free</span>
+            `}
+      </span>
+    </div>
   `;
 }
 
