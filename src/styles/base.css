@@ -33,11 +33,13 @@ body {
   padding: 0 10px;
   border-radius: 6px;
   font-size: 12px;
-  transition: background 120ms ease;
+  transition: background 120ms ease, opacity 120ms ease;
+  opacity: var(--widget-opacity, 1);
 }
 
 .tile:hover {
   background: rgba(255, 255, 255, 0.09);
+  opacity: 1;
 }
 
 .tile.dragging {
@@ -121,6 +123,17 @@ body {
   border-radius: 10px;
   padding: 14px;
   overflow-y: auto;
+}
+
+/* Content layer, not #flyout: it sits on #flyout's solid background rather
+   than the transparent window, so alpha here is safe (see #flyout above). */
+.flyout-content {
+  opacity: var(--widget-opacity, 1);
+  transition: opacity 120ms ease;
+}
+
+#flyout:hover .flyout-content {
+  opacity: 1;
 }
 
 .fly-title {

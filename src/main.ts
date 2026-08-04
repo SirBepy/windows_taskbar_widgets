@@ -139,6 +139,11 @@ function wireDrag(tile: HTMLElement) {
   tile.addEventListener("pointercancel", endDrag);
 }
 
+// 0-100 setting -> CSS alpha; inherited by .tile via var(--widget-opacity).
+function applyOpacity(s: Settings | null) {
+  document.documentElement.style.setProperty("--widget-opacity", String((s?.opacity ?? 100) / 100));
+}
+
 function renderTiles(ids: string[]) {
   tileCleanups.forEach((stop) => stop());
   tileCleanups = [];
@@ -168,11 +173,13 @@ async function main() {
   }
   row = document.getElementById("strip")!;
 
+  applyOpacity(settings);
   renderTiles(enabled);
   const forceReport = reportStripWidth(row);
 
   listen("widgets-changed", async () => {
     const s = await invoke<Settings>("get_settings").catch(() => null);
+    applyOpacity(s);
     if (s) renderTiles(s.enabled_widgets);
     forceReport();
   });

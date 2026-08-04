@@ -215,6 +215,20 @@ function renderAll() {
                   })}
               />
             </label>
+            <label class="field-row">
+              <span>Widget opacity (${settings.opacity}%)</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                .value=${String(settings.opacity)}
+                @change=${(e: Event) =>
+                  save({
+                    ...settings!,
+                    opacity: Number((e.target as HTMLInputElement).value),
+                  })}
+              />
+            </label>
           </section>
         </div>
       </div>

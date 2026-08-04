@@ -31,6 +31,7 @@ export interface Settings {
   enabled_widgets: string[];
   hidden_widgets: string[];
   stats_poll_seconds: number;
+  opacity: number;
   widget_config: Record<string, Record<string, unknown>>;
 }
 

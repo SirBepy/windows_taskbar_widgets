@@ -3,8 +3,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
+import { Settings } from "./shared/widget";
 
 reportErrors("flyout");
+
+// #flyout itself stays fully opaque (see its comment in base.css); only
+// .flyout-content, layered on that solid background, reads this setting.
+function applyOpacity(s: Settings | null) {
+  document.documentElement.style.setProperty("--widget-opacity", String((s?.opacity ?? 100) / 100));
+}
+const refreshOpacity = () => invoke<Settings>("get_settings").then(applyOpacity).catch(() => {});
+refreshOpacity();
+listen("widgets-changed", refreshOpacity);
 
 // No native context/inspect menu anywhere in this app's webviews.
 document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -21,6 +31,7 @@ function show(id: string | null) {
   // Fresh container per widget: lit-html caches its ChildPart on the render
   // target, so reusing a wiped node renders into detached DOM (blank panel).
   const mount = document.createElement("div");
+  mount.className = "flyout-content";
   root.replaceChildren(mount);
   const widget = widgetById(id);
   if (widget?.mountFlyout) cleanup = widget.mountFlyout(mount) ?? null;
