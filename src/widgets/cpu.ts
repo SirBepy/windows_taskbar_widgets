@@ -51,7 +51,7 @@ const configFields: ConfigField[] = [
 export const cpuWidget: TaskbarWidget = {
   id: "cpu",
   name: "CPU",
-  flyout: { widthCss: 320, heightCss: 300 },
+  flyout: { widthCss: 245, heightCss: 270 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {
     if (id === "task-manager") invoke("open_task_manager").catch(() => {});

@@ -14,7 +14,7 @@ export interface ConfigField {
 export interface TaskbarWidget {
   id: string;
   name: string;
-  /** CSS size of the hover flyout; omit for tile-only widgets. */
+  /** Fixed at declare-time, sized for max content; see CLAUDE.md's fixed-size rule. Omit for tile-only widgets. */
   flyout?: { widthCss: number; heightCss: number };
   /** Render the always-visible strip tile. Returns a cleanup fn. */
   mountTile(root: HTMLElement): () => void;

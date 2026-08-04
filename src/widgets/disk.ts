@@ -60,7 +60,9 @@ let lastPrimaryDrive: string | null = null;
 export const diskWidget: TaskbarWidget = {
   id: "disk",
   name: "Disk",
-  flyout: { widthCss: 320, heightCss: 260 },
+  // Sized for 6 drives (a generous power-user max); beyond that #flyout's
+  // overflow-y:auto scrolls instead of resizing the window.
+  flyout: { widthCss: 285, heightCss: 245 },
   menuItems: () => [{ id: "open-drive", label: "Open in Explorer" }],
   onMenuAction: (id) => {
     if (id === "open-drive" && lastPrimaryDrive) {

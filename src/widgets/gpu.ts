@@ -56,8 +56,7 @@ const configFields: ConfigField[] = [
 export const gpuWidget: TaskbarWidget = {
   id: "gpu",
   name: "GPU",
-  // 30px taller than cpu's flyout: same title/subtitle/5 proc rows, but two bars (GPU + VRAM).
-  flyout: { widthCss: 300, heightCss: 330 },
+  flyout: { widthCss: 310, heightCss: 300 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {
     if (id === "task-manager") invoke("open_task_manager").catch(() => {});

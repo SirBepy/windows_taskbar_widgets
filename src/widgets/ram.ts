@@ -46,7 +46,7 @@ function flyoutTemplate(s: SystemStats | null, procs: ProcRow[]) {
 export const ramWidget: TaskbarWidget = {
   id: "ram",
   name: "RAM",
-  flyout: { widthCss: 320, heightCss: 300 },
+  flyout: { widthCss: 320, heightCss: 270 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {
     if (id === "task-manager") invoke("open_task_manager").catch(() => {});
