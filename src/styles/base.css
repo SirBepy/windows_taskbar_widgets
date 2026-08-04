@@ -88,14 +88,6 @@ body {
   color: #f04747;
 }
 
-/* Reserves 3-digit width so celsius (2-digit) vs fahrenheit (3-digit) never
-   changes the tile's footprint; see CLAUDE.md's fixed-size rule. */
-.temp-val {
-  display: inline-block;
-  min-width: 3ch;
-  text-align: right;
-}
-
 /* ---------- stat tiles (cpu/ram/gpu/disk): label above value, divided ---------- */
 
 .tile-stat {
@@ -104,6 +96,12 @@ body {
   gap: 2px;
   padding-right: 8px;
   border-right: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* A trailing divider on the LAST stat tile would fence the group off from whatever
+   follows. Matched in document order, so drag-to-reorder keeps picking the right one. */
+.tile:not(:has(~ .tile .tile-stat)) .tile-stat {
+  border-right: none;
 }
 
 .tile-label {

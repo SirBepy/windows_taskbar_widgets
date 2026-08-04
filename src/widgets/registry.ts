@@ -5,14 +5,12 @@ import { diskWidget } from "./disk";
 import { gpuWidget } from "./gpu";
 import { pomodoroWidget } from "./pomodoro";
 import { ramWidget } from "./ram";
-import { temperatureWidget } from "./temperature";
 
 const ALL: TaskbarWidget[] = [
   cpuWidget,
   ramWidget,
   gpuWidget,
   diskWidget,
-  temperatureWidget,
   conductorWidget,
   pomodoroWidget,
 ];
