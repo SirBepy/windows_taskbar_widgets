@@ -8,37 +8,51 @@ import {
   mountStatsTile,
   procRow,
   ProcRow,
+  readShowPercent,
   readShowTemp,
   SystemStats,
 } from "./system-shared";
 
-function tileTemplate(s: SystemStats | null, showTemp: boolean) {
+interface GpuCfg {
+  showTemp: boolean;
+  showPercent: boolean;
+}
+
+const readCfg = (cfg: Record<string, unknown>): GpuCfg => ({
+  showTemp: readShowTemp(cfg),
+  showPercent: readShowPercent(cfg),
+});
+
+function tileTemplate(s: SystemStats | null, cfg: GpuCfg) {
   if (!s?.gpu) return html``;
   return html`
     <span class="stat ${heat(s.gpu.util_pct)}">
       <i class="ph ph-graphics-card"></i>
       <span class="val">${s.gpu.util_pct}%</span>
-      ${showTemp ? html`<span class="unit">${s.gpu.temp_c}°</span>` : null}
+      ${cfg.showTemp ? html`<span class="unit">${s.gpu.temp_c}°</span>` : null}
     </span>
   `;
 }
 
-function flyoutTemplate(s: SystemStats | null, showTemp: boolean, procs: ProcRow[]) {
+function flyoutTemplate(s: SystemStats | null, cfg: GpuCfg, procs: ProcRow[]) {
   if (!s) return html`<div class="empty">Collecting stats…</div>`;
   if (!s.gpu) return html`<div class="empty">No discrete GPU detected.</div>`;
+  const vramPct = s.gpu.vram_total_bytes ? (s.gpu.vram_used_bytes / s.gpu.vram_total_bytes) * 100 : 0;
   return html`
     <div class="fly-title"><i class="ph ph-graphics-card"></i>GPU</div>
     ${barRow(
       "ph-graphics-card",
-      showTemp ? `GPU · ${s.gpu.temp_c}°C` : "GPU",
+      cfg.showTemp ? `GPU · ${s.gpu.temp_c}°C` : "GPU",
       s.gpu.util_pct,
       `${s.gpu.util_pct}%`,
     )}
     ${barRow(
       "ph-graphics-card",
       "VRAM",
-      s.gpu.vram_total_bytes ? (s.gpu.vram_used_bytes / s.gpu.vram_total_bytes) * 100 : 0,
-      `${fmtBytes(s.gpu.vram_used_bytes)} / ${fmtBytes(s.gpu.vram_total_bytes, 0)}`,
+      vramPct,
+      cfg.showPercent
+        ? `${vramPct.toFixed(0)}%`
+        : `${fmtBytes(s.gpu.vram_used_bytes)} / ${fmtBytes(s.gpu.vram_total_bytes, 0)}`,
     )}
     ${procs.length
       ? html`
@@ -51,6 +65,7 @@ function flyoutTemplate(s: SystemStats | null, showTemp: boolean, procs: ProcRow
 
 const configFields: ConfigField[] = [
   { key: "show_temp", label: "Show GPU temperature", type: "toggle", default: true },
+  { key: "show_percent", label: "Show as percentage", type: "toggle", default: true },
 ];
 
 export const gpuWidget: TaskbarWidget = {
@@ -63,9 +78,9 @@ export const gpuWidget: TaskbarWidget = {
   },
   configFields: () => configFields,
   mountTile(root) {
-    return mountStatsTile(root, "gpu", readShowTemp, tileTemplate);
+    return mountStatsTile(root, "gpu", readCfg, tileTemplate);
   },
   mountFlyout(root) {
-    return mountStatsFlyout(root, "gpu", readShowTemp, flyoutTemplate, "gpu");
+    return mountStatsFlyout(root, "gpu", readCfg, flyoutTemplate, "gpu");
   },
 };

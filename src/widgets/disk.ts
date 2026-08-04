@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
 import { fmtBytes, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
-import { barRow, heat, DiskInfo, subscribeStats, SystemStats } from "./system-shared";
+import { barRow, heat, DiskInfo, readShowPercent, subscribeStats, SystemStats } from "./system-shared";
 
 // Module-scope, never disposed: keeps the last disk list warm so the dashboard's
 // tile_drive select can list real drive names without mounting the widget.
@@ -23,15 +23,16 @@ function primaryDisk(disks: DiskInfo[], tileDrive?: string): DiskInfo | null {
   return disks.reduce((min, d) => (d.free_bytes < min.free_bytes ? d : min));
 }
 
-function tileTemplate(s: SystemStats | null, tileDrive: string | undefined) {
+function tileTemplate(s: SystemStats | null, tileDrive: string | undefined, showPercent: boolean) {
   if (!s) return html`<span class="muted">…</span>`;
   const d = primaryDisk(s.disks, tileDrive);
   if (!d) return html`<span class="muted">–</span>`;
   const usedPct = d.total_bytes ? ((d.total_bytes - d.free_bytes) / d.total_bytes) * 100 : 0;
+  const freePct = d.total_bytes ? (d.free_bytes / d.total_bytes) * 100 : 0;
   return html`
     <span class="stat ${heat(usedPct)}">
       <i class="ph ph-hard-drives"></i>
-      <span class="val">${fmtBytes(d.free_bytes, 0)}</span>
+      <span class="val">${showPercent ? `${freePct.toFixed(0)}%` : fmtBytes(d.free_bytes, 0)}</span>
       <span class="unit">free</span>
     </span>
   `;
@@ -80,20 +81,24 @@ export const diskWidget: TaskbarWidget = {
       ],
       default: "auto",
     },
+    { key: "show_percent", label: "Show as percentage", type: "toggle", default: true },
   ],
   mountTile(root) {
     let latestStats: SystemStats | null = null;
     let tileDrive: string | undefined;
+    let showPercent = true;
     const repaint = () => {
       lastPrimaryDrive = latestStats ? (primaryDisk(latestStats.disks, tileDrive)?.name ?? null) : null;
-      render(tileTemplate(latestStats, tileDrive), root);
+      render(tileTemplate(latestStats, tileDrive, showPercent), root);
     };
     const stopStats = subscribeStats((s) => {
       latestStats = s;
       repaint();
     });
     const stopSettings = subscribeSettings((s) => {
-      tileDrive = widgetConfig(s, "disk").tile_drive as string | undefined;
+      const cfg = widgetConfig(s, "disk");
+      tileDrive = cfg.tile_drive as string | undefined;
+      showPercent = readShowPercent(cfg);
       repaint();
     });
     return () => {

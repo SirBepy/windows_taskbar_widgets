@@ -1,24 +1,30 @@
 import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
-import { fmtBytes, TaskbarWidget } from "../shared/widget";
+import { ConfigField, fmtBytes, TaskbarWidget } from "../shared/widget";
 import {
   barRow,
   heat,
+  mountStatsTile,
   procRow,
   ProcRow,
+  readShowPercent,
   subscribeStats,
   subscribeTopProcesses,
   SystemStats,
 } from "./system-shared";
 
-function tileTemplate(s: SystemStats | null) {
+function tileTemplate(s: SystemStats | null, showPercent: boolean) {
   if (!s) return html`<span class="muted">…</span>`;
   const memPct = s.mem_total_bytes ? (s.mem_used_bytes / s.mem_total_bytes) * 100 : 0;
   return html`
     <span class="stat ${heat(memPct)}">
       <i class="ph ph-memory"></i>
-      <span class="val">${(s.mem_used_bytes / 1024 ** 3).toFixed(1)}</span>
-      <span class="unit">/${(s.mem_total_bytes / 1024 ** 3).toFixed(0)} GB</span>
+      ${showPercent
+        ? html`<span class="val">${memPct.toFixed(0)}%</span>`
+        : html`
+            <span class="val">${(s.mem_used_bytes / 1024 ** 3).toFixed(1)}</span>
+            <span class="unit">/${(s.mem_total_bytes / 1024 ** 3).toFixed(0)} GB</span>
+          `}
     </span>
   `;
 }
@@ -43,6 +49,10 @@ function flyoutTemplate(s: SystemStats | null, procs: ProcRow[]) {
   `;
 }
 
+const configFields: ConfigField[] = [
+  { key: "show_percent", label: "Show as percentage", type: "toggle", default: true },
+];
+
 export const ramWidget: TaskbarWidget = {
   id: "ram",
   name: "RAM",
@@ -51,8 +61,9 @@ export const ramWidget: TaskbarWidget = {
   onMenuAction: (id) => {
     if (id === "task-manager") invoke("open_task_manager").catch(() => {});
   },
+  configFields: () => configFields,
   mountTile(root) {
-    return subscribeStats((s) => render(tileTemplate(s), root));
+    return mountStatsTile(root, "ram", readShowPercent, tileTemplate);
   },
   mountFlyout(root) {
     render(flyoutTemplate(null, []), root);

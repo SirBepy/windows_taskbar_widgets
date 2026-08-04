@@ -79,6 +79,9 @@ export function subscribeStats(onStats: (s: SystemStats) => void): () => void {
 export const readShowTemp = (cfg: Record<string, unknown>): boolean =>
   (cfg.show_temp as boolean | undefined) ?? true;
 
+export const readShowPercent = (cfg: Record<string, unknown>): boolean =>
+  (cfg.show_percent as boolean | undefined) ?? true;
+
 /**
  * Stats + settings + repaint wiring, shared by the cpu/gpu tiles. readCfg maps this
  * widget's config blob to whatever its template needs, so readCfg({}) yields defaults.
