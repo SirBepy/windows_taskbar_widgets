@@ -58,9 +58,11 @@ fn toggle_strip(app: &AppHandle) {
         let _ = w.hide();
         flyout::close_flyout(app.clone());
         autohide::set_user_hidden(true);
+        autohide::set_user_forced_visible(false);
     } else {
         let _ = w.show();
         autohide::set_user_hidden(false);
+        autohide::set_user_forced_visible(true);
     }
 }
 
