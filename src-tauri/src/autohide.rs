@@ -67,17 +67,12 @@ fn raise_topmost(_win: &tauri::WebviewWindow) {}
 /// some borderless fullscreen, so fall back to foreground-window-covers-monitor.
 #[cfg(target_os = "windows")]
 fn foreground_fullscreen() -> bool {
-    use windows_sys::Win32::Foundation::RECT;
-    use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL,
-    };
+    use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTONULL;
     use windows_sys::Win32::UI::Shell::{
         SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
         QUNS_RUNNING_D3D_FULL_SCREEN,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetClassNameW, GetForegroundWindow, GetWindowRect,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
 
     unsafe {
         let mut state = 0;
@@ -99,23 +94,15 @@ fn foreground_fullscreen() -> bool {
             return false;
         }
 
-        let mut wnd: RECT = std::mem::zeroed();
-        if GetWindowRect(fg, &mut wnd) == 0 {
+        let Some((wnd, rc_monitor)) =
+            crate::taskbar::window_and_monitor_rect(fg, MONITOR_DEFAULTTONULL)
+        else {
             return false;
-        }
-        let monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONULL);
-        if monitor.is_null() {
-            return false;
-        }
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(monitor, &mut mi) == 0 {
-            return false;
-        }
-        wnd.left <= mi.rcMonitor.left
-            && wnd.top <= mi.rcMonitor.top
-            && wnd.right >= mi.rcMonitor.right
-            && wnd.bottom >= mi.rcMonitor.bottom
+        };
+        wnd.left <= rc_monitor.left
+            && wnd.top <= rc_monitor.top
+            && wnd.right >= rc_monitor.right
+            && wnd.bottom >= rc_monitor.bottom
     }
 }
 

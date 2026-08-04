@@ -24,18 +24,47 @@ pub fn taskbar_rect() -> Option<(i32, i32, i32, i32)> {
 #[cfg(target_os = "windows")]
 const SLIVER_PX: i32 = 8;
 
+/// Shared by taskbar.rs and autohide.rs: a window's rect plus its monitor's rect.
+/// `monitor_flags` is a MonitorFromWindow dwFlags value; callers differ on whether
+/// "no monitor found" should be treated as a hard failure (MONITOR_DEFAULTTONULL)
+/// or fall back to the nearest one (MONITOR_DEFAULTTONEAREST).
+#[cfg(target_os = "windows")]
+pub fn window_and_monitor_rect(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    monitor_flags: u32,
+) -> Option<(
+    windows_sys::Win32::Foundation::RECT,
+    windows_sys::Win32::Foundation::RECT,
+)> {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO};
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    unsafe {
+        let mut rc: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut rc) == 0 {
+            return None;
+        }
+        let monitor = MonitorFromWindow(hwnd, monitor_flags);
+        if monitor.is_null() {
+            return None;
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut mi) == 0 {
+            return None;
+        }
+        Some((rc, mi.rcMonitor))
+    }
+}
+
 /// True when the taskbar is not on screen right now. Deliberately checks the LIVE
 /// window, not ABM_GETSTATE's auto-hide flag: that flag reports the mode, so it
 /// stays set while the user hovers and the taskbar is actually slid in and visible.
 #[cfg(target_os = "windows")]
 pub fn taskbar_hidden() -> bool {
-    use windows_sys::Win32::Foundation::RECT;
-    use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, GetWindowRect, IsWindowVisible,
-    };
+    use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTONEAREST;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible};
 
     unsafe {
         let class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
@@ -46,16 +75,13 @@ pub fn taskbar_hidden() -> bool {
             return true;
         }
 
-        let mut rc: RECT = std::mem::zeroed();
-        let monitor = MonitorFromWindow(tray, MONITOR_DEFAULTTONEAREST);
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetWindowRect(tray, &mut rc) == 0 || GetMonitorInfoW(monitor, &mut mi) == 0 {
+        let Some((rc, rc_monitor)) = window_and_monitor_rect(tray, MONITOR_DEFAULTTONEAREST)
+        else {
             return false;
-        }
+        };
 
-        let overlap_h = rc.bottom.min(mi.rcMonitor.bottom) - rc.top.max(mi.rcMonitor.top);
-        let overlap_w = rc.right.min(mi.rcMonitor.right) - rc.left.max(mi.rcMonitor.left);
+        let overlap_h = rc.bottom.min(rc_monitor.bottom) - rc.top.max(rc_monitor.top);
+        let overlap_w = rc.right.min(rc_monitor.right) - rc.left.max(rc_monitor.left);
         overlap_h.min(overlap_w) < SLIVER_PX
     }
 }
