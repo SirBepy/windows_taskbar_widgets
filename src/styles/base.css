@@ -86,6 +86,14 @@ body {
   color: #f04747;
 }
 
+/* Reserves 3-digit width so celsius (2-digit) vs fahrenheit (3-digit) never
+   changes the tile's footprint; see CLAUDE.md's fixed-size rule. */
+.temp-val {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: right;
+}
+
 /* mini conductor dials */
 
 .dials {
