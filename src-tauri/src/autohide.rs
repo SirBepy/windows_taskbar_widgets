@@ -14,8 +14,8 @@ pub fn set_user_hidden(hidden: bool) {
     USER_HIDDEN.store(hidden, Ordering::SeqCst);
 }
 
-/// The strip mirrors the taskbar's own visibility. Re-asserts topmost every tick:
-/// the taskbar is topmost too, and whichever asserted it last wins.
+/// The strip mirrors the taskbar's own visibility, and re-asserts topmost only when
+/// it has actually fallen out of the topmost band.
 pub fn spawn_poller(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
@@ -47,9 +47,13 @@ fn raise_topmost(win: &tauri::WebviewWindow) {
         SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     };
     let Ok(hwnd) = win.hwnd() else { return };
+    let hwnd = hwnd.0 as isize;
+    if still_in_topmost_band(hwnd) {
+        return;
+    }
     unsafe {
         SetWindowPos(
-            hwnd.0 as _,
+            hwnd as _,
             HWND_TOPMOST,
             0,
             0,
@@ -62,6 +66,33 @@ fn raise_topmost(win: &tauri::WebviewWindow) {
 
 #[cfg(not(target_os = "windows"))]
 fn raise_topmost(_win: &tauri::WebviewWindow) {}
+
+/// WS_EX_TOPMOST never clears on a same-band reorder, so it cannot tell whether the
+/// strip fell out of the band. Windows keeps every topmost window above every
+/// non-topmost one, so a VISIBLE NON-topmost window above the strip proves it did.
+/// Deliberately tolerates other topmost windows above it, so a video player's
+/// always-on-top mode is not shoved back four times a second.
+#[cfg(target_os = "windows")]
+fn still_in_topmost_band(hwnd: isize) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindow, GetWindowLongW, IsWindowVisible, GWL_EXSTYLE, GW_HWNDPREV, WS_EX_TOPMOST,
+    };
+    unsafe {
+        let mut cur = hwnd as _;
+        loop {
+            cur = GetWindow(cur, GW_HWNDPREV);
+            if cur.is_null() {
+                return true;
+            }
+            if IsWindowVisible(cur) == 0 {
+                continue;
+            }
+            if GetWindowLongW(cur, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0 {
+                return false;
+            }
+        }
+    }
+}
 
 /// SHQueryUserNotificationState catches D3D/presentation/busy fullscreen; it misses
 /// some borderless fullscreen, so fall back to foreground-window-covers-monitor.
