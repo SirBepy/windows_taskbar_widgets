@@ -16,6 +16,9 @@ pub struct Settings {
     pub stats_poll_seconds: u32,
     // 0-100, base opacity for all tiles/flyouts; hover always shows fully opaque.
     pub opacity: u32,
+    // true: strip hides when the taskbar does. false: strip stays visible regardless.
+    // Fullscreen still hides the strip in both modes; this only gates taskbar_hidden().
+    pub follow_taskbar: bool,
     // Keyed by widget id; each value is that widget's own free-form config object.
     pub widget_config: HashMap<String, serde_json::Value>,
     #[serde(flatten)]
@@ -36,6 +39,7 @@ impl Default for Settings {
             hidden_widgets: Vec::new(),
             stats_poll_seconds: 2,
             opacity: 100,
+            follow_taskbar: true,
             widget_config: HashMap::new(),
             kit: KitSettings::default(),
         }

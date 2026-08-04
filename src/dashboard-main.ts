@@ -187,6 +187,18 @@ function renderAll() {
               />
             </label>
             <label class="field-row">
+              <span>Only show when the taskbar is visible</span>
+              <input
+                type="checkbox"
+                .checked=${settings.follow_taskbar}
+                @change=${(e: Event) =>
+                  save({
+                    ...settings!,
+                    follow_taskbar: (e.target as HTMLInputElement).checked,
+                  })}
+              />
+            </label>
+            <label class="field-row">
               <span>Left margin (px)</span>
               <input
                 type="number"

@@ -32,6 +32,7 @@ export interface Settings {
   hidden_widgets: string[];
   stats_poll_seconds: number;
   opacity: number;
+  follow_taskbar: boolean;
   widget_config: Record<string, Record<string, unknown>>;
 }
 
