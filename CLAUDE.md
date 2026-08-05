@@ -19,6 +19,15 @@ sizes... thats too obtrusive."
 `.tile.dragging`'s `transform: scale(1.04)` in `src/styles/base.css` is a drag pick-up
 affordance, not a content-driven resize. It stays.
 
+## Reserving width for numbers
+
+`min-width: 3ch` alone does NOT hold a number's width. `ch` is the width of the "0" glyph, so it
+only guarantees anything once `font-variant-numeric: tabular-nums` forces every digit to that
+width. Measured 2026-08-05: even with both, plain `3ch` came out ~0.03px under three real glyphs in
+Segoe UI Variable, so a 3-digit value still nudged the box wider. The shipped rule uses
+`calc(3ch + 2px)`. Verify a new numeric tile with `getBoundingClientRect()` at min and max values,
+never by eye.
+
 ## Where sizes live
 
 Flyout dims are declared per widget in the `flyout` field of the `TaskbarWidget` contract,
