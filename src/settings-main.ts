@@ -5,7 +5,7 @@ import { reportErrors } from "./shared/report-errors";
 import { mountSettings } from "./views/settings/settings";
 import { expandWidgetInList } from "./views/settings/widget-list-field";
 
-reportErrors("dashboard");
+reportErrors("settings");
 
 // No native context/inspect menu anywhere in this app's webviews.
 document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -42,9 +42,9 @@ function goToRoot(): void {
 
 mountSettings(bodyRoot, { onHeaderChange: renderHeader });
 
-// "Edit this widget" from a tile's right-click menu (tile_menu.rs's open_dashboard):
+// "Edit this widget" from a tile's right-click menu (tile_menu.rs's open_settings):
 // null section just surfaces the widget list, an id also expands + scrolls to it.
-listen<{ section: string | null }>("dashboard-navigate", (e) => {
+listen<{ section: string | null }>("settings-navigate", (e) => {
   goToRoot();
   document.querySelector<HTMLElement>('[data-nav="section-widgets"]')?.click();
   const widgetId = e.payload.section;

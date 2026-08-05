@@ -33,7 +33,7 @@ export interface WireDragOptions {
 }
 
 /** Pointer drag-to-reorder for one sibling of `row`. Extracted from the strip
- * (main.ts) so the dashboard's widget list can reuse it verbatim. */
+ * (main.ts) so the settings screen's widget list can reuse it verbatim. */
 export function wireDragReorder(row: HTMLElement, tile: HTMLElement, opts: WireDragOptions): void {
   const getId = opts.getId ?? ((el) => el.dataset.widget!);
   let startX = 0;

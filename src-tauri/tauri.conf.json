@@ -43,9 +43,9 @@
         "visible": false
       },
       {
-        "label": "dashboard",
-        "url": "dashboard.html",
-        "title": "Taskbar Widgets - Dashboard",
+        "label": "settings",
+        "url": "settings.html",
+        "title": "Taskbar Widgets - Settings",
         "width": 780,
         "height": 560,
         "decorations": true,

@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "All app windows may use core APIs (events, window info).",
-  "windows": ["strip", "flyout", "dashboard"],
+  "windows": ["strip", "flyout", "settings"],
   "permissions": ["core:default", "updater:default", "dialog:default", "process:default"]
 }

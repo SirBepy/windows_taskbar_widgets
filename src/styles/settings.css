@@ -2,16 +2,16 @@
    the full page, this just establishes the height chain down to it. */
 html,
 body,
-#dashboard {
+#settings {
   height: 100%;
   margin: 0;
 }
 
-.dashboard-body {
+.settings-body {
   cursor: auto;
 }
 
-#dashboard {
+#settings {
   display: flex;
   flex-direction: column;
   overflow: hidden;

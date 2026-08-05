@@ -60,7 +60,7 @@ pub fn show_tile_menu(
 }
 
 // Hide moves the id into hidden_widgets rather than dropping it, so re-enabling
-// from the dashboard doesn't need to guess at where a widget used to sit.
+// from the settings window doesn't need to guess at where a widget used to sit.
 fn hide_widget(app: &AppHandle, widget_id: &str) {
     let state = app.state::<SettingsState>();
     let Ok(mut s) = state.0.lock() else { return };
@@ -101,7 +101,7 @@ fn move_widget(app: &AppHandle, widget_id: &str, dir: i32) {
 pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
     if let Some(wid) = id.strip_prefix("edit:") {
-        open_dashboard(app.clone(), Some(wid.to_string()));
+        open_settings(app.clone(), Some(wid.to_string()));
     } else if let Some(wid) = id.strip_prefix("hide:") {
         hide_widget(app, wid);
     } else if let Some(wid) = id.strip_prefix("remove-divider:") {
@@ -122,17 +122,17 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
 }
 
 #[derive(Clone, Serialize)]
-struct DashboardNavigate {
+struct SettingsNavigate {
     section: Option<String>,
 }
 
-/// Shows + focuses the dashboard window and tells it which section to expand.
+/// Shows + focuses the settings window and tells it which section to expand.
 #[tauri::command]
-pub fn open_dashboard(app: AppHandle, section: Option<String>) {
-    let Some(win) = app.get_webview_window("dashboard") else { return };
+pub fn open_settings(app: AppHandle, section: Option<String>) {
+    let Some(win) = app.get_webview_window("settings") else { return };
     let _ = win.show();
     let _ = win.set_focus();
-    let _ = app.emit_to("dashboard", "dashboard-navigate", DashboardNavigate { section });
+    let _ = app.emit_to("settings", "settings-navigate", SettingsNavigate { section });
 }
 
 #[cfg(target_os = "windows")]

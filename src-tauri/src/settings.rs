@@ -11,7 +11,7 @@ pub struct Settings {
     // CSS px between the taskbar's left edge and the strip (left side is empty on Win11).
     pub left_margin: u32,
     pub enabled_widgets: Vec<String>,
-    // Widgets a user hid via the tile menu or dashboard; kept (not dropped) so re-enabling
+    // Widgets a user hid via the tile menu or settings; kept (not dropped) so re-enabling
     // doesn't lose the id or its position semantics.
     pub hidden_widgets: Vec<String>,
     pub stats_poll_seconds: u32,

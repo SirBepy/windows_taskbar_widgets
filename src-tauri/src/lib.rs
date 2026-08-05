@@ -73,7 +73,7 @@ fn log_js(level: String, msg: String) {
     }
 }
 
-// Dashboard is excluded on purpose: it's not part of the always-visible
+// The settings window is excluded on purpose: it's not part of the always-visible
 // surface, and excluding it would hide settings from the user's own screenshots.
 fn apply_capture_exclusion(app: &AppHandle, excluded: bool) {
     for label in ["strip", "flyout"] {
@@ -98,9 +98,9 @@ fn toggle_strip(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&dashboard, &quit])?;
+    let menu = Menu::with_items(app, &[&settings, &quit])?;
     let icon: Image = match app.default_window_icon() {
         Some(i) => i.clone(),
         None => Image::from_bytes(include_bytes!("../icons/32x32.png"))?,
@@ -112,7 +112,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
-            "dashboard" => tile_menu::open_dashboard(app.clone(), None),
+            "settings" => tile_menu::open_settings(app.clone(), None),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -198,10 +198,10 @@ pub fn run() {
         // same global listener list (tauri fires every listener for every menu
         // event), so each handler namespaces its ids and ignores the rest.
         .on_menu_event(tile_menu::handle_menu_event)
-        // The dashboard is a real window (taskbar-visible), so closing it via the X
+        // Settings is a real window (taskbar-visible), so closing it via the X
         // must hide, not destroy, or the app would need a full window rebuild to reopen.
         .on_window_event(|window, event| {
-            if window.label() == "dashboard" {
+            if window.label() == "settings" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
@@ -225,7 +225,7 @@ pub fn run() {
             bridge_conductor::conductor_refresh_now,
             bridge_pomodoro::pomodoro_cmd,
             tile_menu::show_tile_menu,
-            tile_menu::open_dashboard,
+            tile_menu::open_settings,
             tile_menu::open_task_manager,
             tile_menu::open_explorer,
             tile_menu::focus_or_launch_app,

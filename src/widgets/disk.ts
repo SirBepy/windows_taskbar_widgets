@@ -11,10 +11,10 @@ import {
   SystemStats,
 } from "./system-shared";
 
-// Backs the dashboard's tile_drive select, which needs real drive names without
+// Backs the settings screen's tile_drive select, which needs real drive names without
 // mounting the widget. Refreshed on demand rather than by a live subscription:
 // a listener here would never be disposed and would wake every window (the
-// dashboard included) every poll tick just to restock a rarely-read cache.
+// settings included) every poll tick just to restock a rarely-read cache.
 let lastDisks: DiskInfo[] = [];
 const refreshDisks = () =>
   fetchStatsOnce().then((s) => {

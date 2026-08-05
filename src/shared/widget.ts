@@ -22,7 +22,7 @@ export interface TaskbarWidget {
   /** Extra entries appended to this tile's native context menu. */
   menuItems?: () => { id: string; label: string }[];
   onMenuAction?: (id: string) => void;
-  /** Rows rendered in the dashboard's per-widget config accordion. */
+  /** Rows rendered in the settings screen's per-widget config accordion. */
   configFields?: () => ConfigField[];
 }
 

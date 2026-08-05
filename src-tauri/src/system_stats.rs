@@ -111,7 +111,7 @@ pub fn spawn_poller(app: AppHandle) {
                     *latest = stats.clone();
                 }
             }
-            // emit_to, not emit: a broadcast also wakes the dashboard webview,
+            // emit_to, not emit: a broadcast also wakes the settings webview,
             // which renders no stats and is hidden almost all the time.
             let _ = app.emit_to("strip", "system-stats", &stats);
             if crate::flyout::is_open() {
