@@ -1,7 +1,8 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use sysinfo::{Disks, ProcessesToUpdate, System};
+use std::time::{Duration, Instant};
+use sysinfo::{Disks, ProcessRefreshKind, ProcessesToUpdate, System};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Clone, Serialize, Default)]
@@ -51,7 +52,24 @@ pub fn spawn_poller(app: AppHandle) {
             .ok()
             .and_then(|com| wmi::WMIConnection::with_namespace_path("root\\WMI", com).ok());
 
+        let mut was_watched = true;
+
         loop {
+            // Hidden strip (fullscreen app, auto-hidden taskbar, tray toggle) with no
+            // flyout up means nothing renders these, so skip the sample entirely.
+            if !is_watched(&app) {
+                was_watched = false;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
+            // Else the first sample back reports the average across the whole time
+            // the strip was away, since that is cpu_usage's delta baseline.
+            if !was_watched {
+                sys.refresh_cpu_usage();
+                std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+            }
+            was_watched = true;
+
             sys.refresh_cpu_usage();
             sys.refresh_memory();
 
@@ -93,7 +111,12 @@ pub fn spawn_poller(app: AppHandle) {
                     *latest = stats.clone();
                 }
             }
-            let _ = app.emit("system-stats", &stats);
+            // emit_to, not emit: a broadcast also wakes the dashboard webview,
+            // which renders no stats and is hidden almost all the time.
+            let _ = app.emit_to("strip", "system-stats", &stats);
+            if crate::flyout::is_open() {
+                let _ = app.emit_to("flyout", "system-stats", &stats);
+            }
 
             let poll_s = app
                 .try_state::<crate::settings::SettingsState>()
@@ -103,6 +126,15 @@ pub fn spawn_poller(app: AppHandle) {
             std::thread::sleep(std::time::Duration::from_secs(poll_s as u64));
         }
     });
+}
+
+fn is_watched(app: &AppHandle) -> bool {
+    if crate::flyout::is_open() {
+        return true;
+    }
+    app.get_webview_window("strip")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(true)
 }
 
 #[derive(Clone, Serialize)]
@@ -115,18 +147,30 @@ pub struct ProcRow {
 // Dedicated instance kept warm across calls: consecutive refreshes need to see the
 // same process set to compute a meaningful cpu% delta. Only touched on hover, never
 // from the 2s poller (a full process refresh is comparatively expensive).
-static PROC_SYS: OnceLock<Mutex<System>> = OnceLock::new();
+static PROC_SYS: OnceLock<Mutex<(System, Option<Instant>)>> = OnceLock::new();
+
+// Past this, the warm instance's previous refresh is too old to be a cpu% baseline
+// (it would report the average since then), so a fresh pair has to be taken.
+const PROC_BASELINE_MAX_AGE: Duration = Duration::from_secs(10);
 
 #[tauri::command]
 pub fn get_top_processes(metric: String) -> Vec<ProcRow> {
-    let sys_mutex = PROC_SYS.get_or_init(|| Mutex::new(System::new()));
-    let Ok(mut sys) = sys_mutex.lock() else { return Vec::new() };
+    let sys_mutex = PROC_SYS.get_or_init(|| Mutex::new((System::new(), None)));
+    let Ok(mut guard) = sys_mutex.lock() else { return Vec::new() };
+    let (sys, last_refresh) = &mut *guard;
 
-    sys.refresh_processes(ProcessesToUpdate::All, true);
-    if metric == "cpu" {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        sys.refresh_processes(ProcessesToUpdate::All, true);
+    // Names and the chosen metric only; the default refreshes exe/cmd/cwd/environ/
+    // user for every process on the box, none of which is read below.
+    let kind = ProcessRefreshKind::nothing().with_cpu().with_memory();
+    // A flyout polls us every 2s, so the throwaway refresh + 200ms block is paid
+    // only on a cold first hover rather than on every call.
+    let stale = last_refresh.is_none_or(|t| t.elapsed() > PROC_BASELINE_MAX_AGE);
+    if metric == "cpu" && stale {
+        sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     }
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+    *last_refresh = Some(Instant::now());
 
     if metric == "gpu" {
         #[cfg(target_os = "windows")]

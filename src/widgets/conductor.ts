@@ -212,10 +212,11 @@ export const conductorWidget: TaskbarWidget = {
       latest = u;
       render(flyoutTemplate(u), root);
     });
-    // 1Hz repaint keeps the reset countdowns live between 30s polls.
+    // Keeps the reset countdowns live between 30s polls. 10s, not 1s: fmtCountdown
+    // renders whole minutes, so a faster tick just redraws identical text.
     const tick = setInterval(() => {
       if (latest) render(flyoutTemplate(latest), root);
-    }, 1000);
+    }, 10_000);
     return () => {
       stop();
       clearInterval(tick);

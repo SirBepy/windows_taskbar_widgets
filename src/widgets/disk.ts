@@ -1,14 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
 import { html, render } from "lit-html";
 import { fmtBytes, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
-import { barRow, heat, DiskInfo, readShowPercent, subscribeStats, SystemStats } from "./system-shared";
+import {
+  barRow,
+  heat,
+  DiskInfo,
+  fetchStatsOnce,
+  readShowPercent,
+  subscribeStats,
+  SystemStats,
+} from "./system-shared";
 
-// Module-scope, never disposed: keeps the last disk list warm so the dashboard's
-// tile_drive select can list real drive names without mounting the widget.
+// Backs the dashboard's tile_drive select, which needs real drive names without
+// mounting the widget. Refreshed on demand rather than by a live subscription:
+// a listener here would never be disposed and would wake every window (the
+// dashboard included) every poll tick just to restock a rarely-read cache.
 let lastDisks: DiskInfo[] = [];
-subscribeStats((s) => {
-  lastDisks = s.disks;
-});
+const refreshDisks = () =>
+  fetchStatsOnce().then((s) => {
+    if (s) lastDisks = s.disks;
+  });
+refreshDisks();
 
 // Prefer the configured drive; else C: (the system drive) for the compact tile
 // number; else whichever drive is closest to full, since that's worth watching.
@@ -76,19 +88,24 @@ export const diskWidget: TaskbarWidget = {
       invoke("open_explorer", { path: lastPrimaryDrive }).catch(() => {});
     }
   },
-  configFields: () => [
-    {
-      key: "tile_drive",
-      label: "Drive shown in tile",
-      type: "select",
-      options: [
-        { value: "auto", label: "Auto" },
-        ...lastDisks.map((d) => ({ value: d.name, label: d.name.replace(/\\$/, "") })),
-      ],
-      default: "auto",
-    },
-    { key: "show_percent", label: "Show as percentage", type: "toggle", default: true },
-  ],
+  configFields: () => {
+    // Restocks for the next open; drive letters don't change while a config
+    // accordion is on screen, so this render uses the cache as-is.
+    refreshDisks();
+    return [
+      {
+        key: "tile_drive",
+        label: "Drive shown in tile",
+        type: "select",
+        options: [
+          { value: "auto", label: "Auto" },
+          ...lastDisks.map((d) => ({ value: d.name, label: d.name.replace(/\\$/, "") })),
+        ],
+        default: "auto",
+      },
+      { key: "show_percent", label: "Show as percentage", type: "toggle", default: true },
+    ];
+  },
   mountTile(root) {
     let latestStats: SystemStats | null = null;
     let tileDrive: string | undefined;

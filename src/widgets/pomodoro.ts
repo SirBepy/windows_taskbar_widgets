@@ -98,12 +98,25 @@ export const pomodoroWidget: TaskbarWidget = {
   },
   mountTile(root) {
     let latest: PomodoroPush | null = null;
+    let tick: number | undefined;
     const repaint = () => render(tileTemplate(latest, Date.now()), root);
+    // Only a running timer changes between pushes: paused freezes at
+    // anchor_remaining_sec and disconnected reads "--:--", so ticking in those
+    // states would repaint the strip once a second to draw the same pixels.
+    const retime = () => {
+      const wanted = !!latest?.connected && !!latest.running;
+      if (wanted === (tick !== undefined)) return;
+      if (wanted) tick = window.setInterval(repaint, REFRESH_MS);
+      else {
+        clearInterval(tick);
+        tick = undefined;
+      }
+    };
     const stop = subscribe((s) => {
       latest = s;
       repaint();
+      retime();
     });
-    const tick = setInterval(repaint, REFRESH_MS);
     return () => {
       stop();
       clearInterval(tick);
