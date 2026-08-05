@@ -101,13 +101,28 @@ pub fn get_current_flyout_widget() -> Option<String> {
     CURRENT_WIDGET.lock().ok().and_then(|c| c.clone())
 }
 
+/// True only while a flyout is on screen.
+pub fn is_open() -> bool {
+    CURRENT_WIDGET.lock().map(|c| c.is_some()).unwrap_or(false)
+}
+
+/// The only path that hides the flyout. A hidden webview keeps running its JS, so
+/// this emit is what makes flyout-main.ts unmount the widget; see flyout-mount.ts.
+fn hide(app: &AppHandle) {
+    if let Ok(mut cur) = CURRENT_WIDGET.lock() {
+        *cur = None;
+    }
+    if let Some(fly) = app.get_webview_window("flyout") {
+        let _ = fly.hide();
+    }
+    let _ = app.emit_to("flyout", "flyout-hidden", ());
+}
+
 #[tauri::command]
 pub fn close_flyout(app: AppHandle) {
     // Invalidate any running poll loop's captured gen so it exits on its next tick.
     POLL_GEN.fetch_add(1, Ordering::SeqCst);
-    if let Some(fly) = app.get_webview_window("flyout") {
-        let _ = fly.hide();
-    }
+    hide(&app);
 }
 
 /// Cursor-polls while the flyout is open: stays open as long as the pointer is
@@ -151,7 +166,7 @@ fn spawn_poll_loop(app: AppHandle, gen: u64) {
             let since = *cold_since.get_or_insert(Instant::now());
             if since.elapsed() >= Duration::from_millis(COLD_CLOSE_MS) {
                 if POLL_GEN.load(Ordering::SeqCst) == gen {
-                    let _ = fly.hide();
+                    hide(&app);
                 }
                 return;
             }

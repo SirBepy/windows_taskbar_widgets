@@ -58,14 +58,26 @@ export function procRow(p: ProcRow, fmtVal: (v: number) => string) {
   `;
 }
 
-/** Latest snapshot immediately, then live updates via the 2s poller's event. */
+// Survives mount/unmount cycles (the page itself never reloads), so a flyout
+// remounted on re-hover paints real numbers on its first frame instead of
+// flashing its "Collecting stats…" empty state while the invoke round-trips.
+let lastStats: SystemStats | null = null;
+
+/** Last known snapshot synchronously, then live updates via the poller's event. */
 export function subscribeStats(onStats: (s: SystemStats) => void): () => void {
   let disposed = false;
   let unlisten: (() => void) | null = null;
-  invoke<SystemStats>("get_system_stats").then((s) => {
-    if (!disposed && s.mem_total_bytes > 0) onStats(s);
-  });
-  listen<SystemStats>("system-stats", (e) => onStats(e.payload)).then((un) => {
+  if (lastStats) onStats(lastStats);
+  else {
+    invoke<SystemStats>("get_system_stats").then((s) => {
+      if (s.mem_total_bytes > 0) lastStats = s;
+      if (!disposed && s.mem_total_bytes > 0) onStats(s);
+    });
+  }
+  listen<SystemStats>("system-stats", (e) => {
+    lastStats = e.payload;
+    onStats(e.payload);
+  }).then((un) => {
     if (disposed) un();
     else unlisten = un;
   });
@@ -73,6 +85,13 @@ export function subscribeStats(onStats: (s: SystemStats) => void): () => void {
     disposed = true;
     unlisten?.();
   };
+}
+
+/** One-shot read for callers that need a snapshot but must not hold a listener. */
+export function fetchStatsOnce(): Promise<SystemStats | null> {
+  return invoke<SystemStats>("get_system_stats")
+    .then((s) => (s.mem_total_bytes > 0 ? ((lastStats = s), s) : null))
+    .catch(() => null);
 }
 
 /** readCfg for the show_temp toggle cpu and gpu both expose. */

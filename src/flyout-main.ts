@@ -2,6 +2,7 @@ import "@phosphor-icons/web/regular";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { widgetById } from "./widgets/registry";
+import { createFlyoutController } from "./shared/flyout-mount";
 import { reportErrors } from "./shared/report-errors";
 import { applyOpacity, Settings } from "./shared/widget";
 
@@ -16,26 +17,24 @@ listen("widgets-changed", refreshOpacity);
 // No native context/inspect menu anywhere in this app's webviews.
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
-let cleanup: (() => void) | null = null;
-let currentId: string | null = null;
-
-function show(id: string | null) {
-  if (!id || id === currentId) return;
-  cleanup?.();
-  cleanup = null;
-  currentId = id;
+const controller = createFlyoutController((id) => {
   const root = document.getElementById("flyout")!;
   // Fresh container per widget: lit-html caches its ChildPart on the render
   // target, so reusing a wiped node renders into detached DOM (blank panel).
   const mount = document.createElement("div");
   mount.className = "flyout-content";
   root.replaceChildren(mount);
-  const widget = widgetById(id);
-  if (widget?.mountFlyout) cleanup = widget.mountFlyout(mount) ?? null;
-}
+  return widgetById(id)?.mountFlyout?.(mount) ?? null;
+});
 
-listen<{ widget_id: string }>("flyout-show", (e) => show(e.payload.widget_id));
+listen<{ widget_id: string }>("flyout-show", (e) => controller.show(e.payload.widget_id));
+
+// Hiding the window does not pause this page, so unmounting here is the only
+// thing that stops the widget's polling. See flyout-mount.ts.
+listen("flyout-hidden", () => controller.hide());
 
 // The open_flyout emit can beat this page's listener registration (first open
 // right after launch), so also pull the current id once on load.
-invoke<string | null>("get_current_flyout_widget").then(show).catch(() => {});
+invoke<string | null>("get_current_flyout_widget")
+  .then((id) => controller.show(id))
+  .catch(() => {});
