@@ -19,6 +19,9 @@ pub struct Settings {
     // true: strip hides when the taskbar does. false: strip stays visible regardless.
     // Fullscreen still hides the strip in both modes; this only gates taskbar_hidden().
     pub follow_taskbar: bool,
+    // Opt-in only: excludes strip+flyout from screen capture, but also from the
+    // user's own screenshots, so it must never default true.
+    pub hide_from_capture: bool,
     // Keyed by widget id; each value is that widget's own free-form config object.
     pub widget_config: HashMap<String, serde_json::Value>,
     #[serde(flatten)]
@@ -40,6 +43,7 @@ impl Default for Settings {
             stats_poll_seconds: 2,
             opacity: 100,
             follow_taskbar: true,
+            hide_from_capture: false,
             widget_config: HashMap::new(),
             kit: KitSettings::default(),
         }

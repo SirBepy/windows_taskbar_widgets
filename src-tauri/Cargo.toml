@@ -26,6 +26,7 @@ sysinfo = "0.33"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tauri_kit_settings = { path = "../vendor/tauri_kit/tauri/settings" }
 tauri_kit_updater = { path = "../vendor/tauri_kit/tauri/updater" }
+tauri_kit_window = { path = "../vendor/tauri_kit/tauri/window" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect"] }
 futures-util = { version = "0.3", default-features = false }

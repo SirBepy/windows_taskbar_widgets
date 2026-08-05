@@ -17,6 +17,13 @@ export const settingsSchema = defineSchema({
           label: "Only show when the taskbar is visible",
         },
         {
+          key: "hide_from_capture",
+          kind: "toggle",
+          label: "Hide from screen sharing and recording",
+          tooltip:
+            "The strip becomes invisible in screen shares and recordings - and in your own screenshots too.",
+        },
+        {
           key: "left_margin",
           kind: "number",
           label: "Left margin (px)",

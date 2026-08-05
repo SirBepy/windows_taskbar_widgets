@@ -28,6 +28,7 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     self::settings::persist(&app, &settings)?;
+    apply_capture_exclusion(&app, settings.hide_from_capture);
     let state = app.state::<SettingsState>();
     if let Ok(mut s) = state.0.lock() {
         *s = settings;
@@ -69,6 +70,16 @@ fn log_js(level: String, msg: String) {
     match level.as_str() {
         "error" => log::error!("js: {msg}"),
         _ => log::info!("js: {msg}"),
+    }
+}
+
+// Dashboard is excluded on purpose: it's not part of the always-visible
+// surface, and excluding it would hide settings from the user's own screenshots.
+fn apply_capture_exclusion(app: &AppHandle, excluded: bool) {
+    for label in ["strip", "flyout"] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = tauri_kit_window::exclude_from_capture(&w, excluded);
+        }
     }
 }
 
@@ -155,6 +166,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let settings = settings::load(&handle);
             log::info!("app started; version={}", env!("CARGO_PKG_VERSION"));
+            apply_capture_exclusion(&handle, settings.hide_from_capture);
             if let Ok(mut s) = handle.state::<SettingsState>().0.lock() {
                 *s = settings;
             }
