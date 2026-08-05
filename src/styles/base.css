@@ -75,20 +75,29 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- stat tiles (cpu/ram/gpu/disk): label above value, divided ---------- */
+/* ---------- stat tiles (cpu/ram/gpu/disk): label above value ---------- */
 
 .tile-stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-right: 8px;
-  border-right: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-/* A trailing divider on the LAST stat tile would fence the group off from whatever
-   follows. Matched in document order, so drag-to-reorder keeps picking the right one. */
-.tile:not(:has(~ .tile .tile-stat)) .tile-stat {
-  border-right: none;
+/* ---------- divider: a user-placed entry in enabled_widgets, not a tile property ---------- */
+
+.tile.divider-tile {
+  padding: 0 4px;
+}
+
+.tile.divider-tile:hover {
+  background: none;
+  opacity: var(--widget-opacity, 1);
+}
+
+.divider-rule {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .tile-label {

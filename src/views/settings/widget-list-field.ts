@@ -6,6 +6,7 @@ import { emit } from "@tauri-apps/api/event";
 import { fieldRow } from "../../../vendor/tauri_kit/frontend/settings/fields";
 import type { CustomField, Field } from "../../../vendor/tauri_kit/frontend/settings/schema";
 import { ConfigField, Settings, TaskbarWidget, widgetConfig } from "../../shared/widget";
+import { isDividerId, makeDividerId } from "../../shared/divider";
 import { wireDragReorder } from "../../shared/drag-reorder";
 import { allWidgets } from "../../widgets/registry";
 
@@ -133,6 +134,54 @@ function widgetRow(w: TaskbarWidget, s: Settings, isEnabled: boolean): TemplateR
   `;
 }
 
+type Row = { kind: "widget"; widget: TaskbarWidget } | { kind: "divider"; id: string };
+
+// Walks enabled_widgets once so widget and divider rows share one ordered list -
+// drag-reorder reads row.children back in DOM order, so they can't live in two lists.
+function rowsFor(order: string[]): Row[] {
+  const rows: Row[] = [];
+  for (const id of order) {
+    if (isDividerId(id)) {
+      rows.push({ kind: "divider", id });
+      continue;
+    }
+    const widget = allWidgets().find((w) => w.id === id);
+    if (widget) rows.push({ kind: "widget", widget });
+  }
+  return rows;
+}
+
+function dividerRow(id: string): TemplateResult {
+  return html`
+    <div
+      class="widget-row divider-row"
+      id="widget-${id}"
+      data-widget=${id}
+      ${ref((el) => {
+        if (!el) return;
+        const container = (el as HTMLElement).closest<HTMLElement>(".widget-enabled-list");
+        if (container) {
+          wireDragReorder(container, el as HTMLElement, {
+            onReorder: (order) => void mutate((cur) => ({ ...cur, enabled_widgets: order })),
+          });
+        }
+      })}
+    >
+      <div class="widget-row-head">
+        <i class="ph ph-dots-six-vertical widget-drag-handle"></i>
+        <span class="divider-row-label"><i class="ph ph-minus"></i>Divider</span>
+        <button
+          type="button"
+          class="kit-btn-secondary widget-row-edit"
+          @click=${() => void mutate((cur) => ({ ...cur, enabled_widgets: cur.enabled_widgets.filter((w) => w !== id) }))}
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 export function widgetListField(): CustomField {
   return {
     key: "enabled_widgets",
@@ -143,12 +192,23 @@ export function widgetListField(): CustomField {
       if (!cache) return html`<div class="kit-row">Loading…</div>`;
       const s = cache;
       const order = s.enabled_widgets;
-      const enabled = order.map((id) => allWidgets().find((w) => w.id === id)).filter((w): w is TaskbarWidget => !!w);
+      const rows = rowsFor(order);
       const disabled = allWidgets().filter((w) => !order.includes(w.id));
       return html`
         <div class="widget-enabled-list">
-          ${repeat(enabled, (w) => w.id, (w) => widgetRow(w, s, true))}
+          ${repeat(
+            rows,
+            (r) => (r.kind === "divider" ? r.id : r.widget.id),
+            (r) => (r.kind === "divider" ? dividerRow(r.id) : widgetRow(r.widget, s, true)),
+          )}
         </div>
+        <button
+          type="button"
+          class="kit-btn-secondary widget-add-divider"
+          @click=${() => void mutate((cur) => ({ ...cur, enabled_widgets: [...cur.enabled_widgets, makeDividerId()] }))}
+        >
+          <i class="ph ph-plus"></i> Add divider
+        </button>
         ${disabled.length
           ? html`
               <div class="kit-section-title widget-list-divider">Available</div>

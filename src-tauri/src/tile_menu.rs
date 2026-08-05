@@ -19,6 +19,12 @@ fn mk_item(app: &AppHandle, id: String, label: &str) -> Result<MenuItem<tauri::W
     MenuItem::with_id(app, id, label, true, None::<&str>).map_err(|e| e.to_string())
 }
 
+// Dividers have no config to edit and are removed outright rather than parked in
+// hidden_widgets (their uuid suffix would never be re-offered for re-enabling anyway).
+fn is_divider(widget_id: &str) -> bool {
+    widget_id.starts_with("divider:")
+}
+
 #[tauri::command]
 pub fn show_tile_menu(
     app: AppHandle,
@@ -27,10 +33,15 @@ pub fn show_tile_menu(
     items: Vec<MenuItemSpec>,
 ) -> Result<(), String> {
     let menu = Menu::new(&app).map_err(|e| e.to_string())?;
-    menu.append(&mk_item(&app, format!("edit:{widget_id}"), "Edit this widget")?)
-        .map_err(|e| e.to_string())?;
-    menu.append(&mk_item(&app, format!("hide:{widget_id}"), "Hide this widget")?)
-        .map_err(|e| e.to_string())?;
+    if is_divider(&widget_id) {
+        menu.append(&mk_item(&app, format!("remove-divider:{widget_id}"), "Remove divider")?)
+            .map_err(|e| e.to_string())?;
+    } else {
+        menu.append(&mk_item(&app, format!("edit:{widget_id}"), "Edit this widget")?)
+            .map_err(|e| e.to_string())?;
+        menu.append(&mk_item(&app, format!("hide:{widget_id}"), "Hide this widget")?)
+            .map_err(|e| e.to_string())?;
+    }
     menu.append(&PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     menu.append(&mk_item(&app, format!("move-left:{widget_id}"), "Move left")?)
@@ -61,6 +72,16 @@ fn hide_widget(app: &AppHandle, widget_id: &str) {
     let _ = app.emit_to("strip", "widgets-changed", ());
 }
 
+// Unlike hide_widget, drops the id entirely: a divider's uuid id is single-use,
+// so there's nothing meaningful to re-offer later from hidden_widgets.
+fn remove_divider(app: &AppHandle, widget_id: &str) {
+    let state = app.state::<SettingsState>();
+    let Ok(mut s) = state.0.lock() else { return };
+    s.enabled_widgets.retain(|w| w != widget_id);
+    let _ = settings::persist(app, &s);
+    let _ = app.emit_to("strip", "widgets-changed", ());
+}
+
 fn move_widget(app: &AppHandle, widget_id: &str, dir: i32) {
     let state = app.state::<SettingsState>();
     let Ok(mut s) = state.0.lock() else { return };
@@ -83,6 +104,8 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         open_dashboard(app.clone(), Some(wid.to_string()));
     } else if let Some(wid) = id.strip_prefix("hide:") {
         hide_widget(app, wid);
+    } else if let Some(wid) = id.strip_prefix("remove-divider:") {
+        remove_divider(app, wid);
     } else if let Some(wid) = id.strip_prefix("move-left:") {
         move_widget(app, wid, -1);
     } else if let Some(wid) = id.strip_prefix("move-right:") {
