@@ -13,7 +13,7 @@ use settings::{Settings, SettingsState};
 use std::sync::Mutex;
 use tauri::{
     image::Image,
-    menu::Menu,
+    menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, WindowEvent,
 };
@@ -87,7 +87,8 @@ fn toggle_strip(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let (dashboard, quit) = tile_menu::app_menu_items(app)?;
+    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&dashboard, &quit])?;
     let icon: Image = match app.default_window_icon() {
         Some(i) => i.clone(),
@@ -205,6 +206,7 @@ pub fn run() {
             tile_menu::open_dashboard,
             tile_menu::open_task_manager,
             tile_menu::open_explorer,
+            tile_menu::focus_or_launch_app,
             tile_menu::reorder_widgets,
             tauri_kit_settings::kit_copy_logs,
             tauri_kit_settings::kit_reset_settings,

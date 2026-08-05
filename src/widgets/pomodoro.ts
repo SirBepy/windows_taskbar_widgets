@@ -116,6 +116,10 @@ export const pomodoroWidget: TaskbarWidget = {
   id: "pomodoro",
   name: "Pomodoro",
   flyout: { widthCss: 320, heightCss: 240 },
+  menuItems: () => [{ id: "open-app", label: "Open Pomodoro Overlay" }],
+  onMenuAction: (id) => {
+    if (id === "open-app") invoke("focus_or_launch_app", { app: "pomodoro" }).catch(() => {});
+  },
   mountTile(root) {
     let latest: PomodoroPush | null = null;
     const repaint = () => render(tileTemplate(latest, Date.now()), root);

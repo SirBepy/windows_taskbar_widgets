@@ -1,6 +1,6 @@
 use crate::settings::{self, SettingsState};
 use serde::{Deserialize, Serialize};
-use tauri::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, Window};
 
 #[derive(Deserialize)]
@@ -17,16 +17,6 @@ struct TileMenuAction {
 
 fn mk_item(app: &AppHandle, id: String, label: &str) -> Result<MenuItem<tauri::Wry>, String> {
     MenuItem::with_id(app, id, label, true, None::<&str>).map_err(|e| e.to_string())
-}
-
-/// Shared by the tray menu and the tile menu's "App options" submenu so the
-/// two item lists can't drift apart; ids stay "dashboard"/"quit" either way.
-pub fn app_menu_items(
-    app: &AppHandle,
-) -> tauri::Result<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> {
-    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    Ok((dashboard, quit))
 }
 
 #[tauri::command]
@@ -55,12 +45,6 @@ pub fn show_tile_menu(
             menu.append(&mk_item(&app, id, &it.label)?).map_err(|e| e.to_string())?;
         }
     }
-    menu.append(&PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
-    let (dashboard, quit) = app_menu_items(&app).map_err(|e| e.to_string())?;
-    let app_options = Submenu::with_items(&app, "App options", true, &[&dashboard, &quit])
-        .map_err(|e| e.to_string())?;
-    menu.append(&app_options).map_err(|e| e.to_string())?;
     menu.popup(window).map_err(|e| e.to_string())
 }
 
@@ -161,6 +145,103 @@ pub fn open_explorer(path: String) -> Result<(), String> {
     cmd.arg(&path);
     detach(&mut cmd);
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn focus_or_launch_app(app: String) -> Result<(), String> {
+    focus_or_launch_app_impl(&app)
+}
+
+// key -> (LOCALAPPDATA-relative exe path, process name to match if already running).
+// Hardcoded allowlist: the frontend passes a key, never a path, so it can't ask
+// this command to launch anything else.
+#[cfg(target_os = "windows")]
+const APP_TARGETS: &[(&str, &str, &str)] = &[
+    ("conductor", r"Claude Conductor\claude-conductor.exe", "claude-conductor.exe"),
+    ("pomodoro", r"Pomodoro Overlay\pomodoro-overlay.exe", "pomodoro-overlay.exe"),
+];
+
+#[cfg(target_os = "windows")]
+fn focus_or_launch_app_impl(key: &str) -> Result<(), String> {
+    let Some(&(_, rel_path, proc_name)) = APP_TARGETS.iter().find(|(k, _, _)| *k == key) else {
+        return Err(format!("unknown app key: {key}"));
+    };
+    if let Some(pid) = find_pid_by_name(proc_name) {
+        if focus_window_for_pid(pid) {
+            return Ok(());
+        }
+    }
+    let local_appdata = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA not set")?;
+    let exe_path = std::path::Path::new(&local_appdata).join(rel_path);
+    if !exe_path.exists() {
+        return Err(format!("{proc_name} not found at {}", exe_path.display()));
+    }
+    let mut cmd = std::process::Command::new(&exe_path);
+    detach(&mut cmd);
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn focus_or_launch_app_impl(_key: &str) -> Result<(), String> {
+    Err("focus_or_launch_app is Windows-only".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn find_pid_by_name(proc_name: &str) -> Option<u32> {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    sys.processes()
+        .values()
+        .find(|p| p.name().to_string_lossy().eq_ignore_ascii_case(proc_name))
+        .map(|p| p.pid().as_u32())
+}
+
+// EnumWindows' callback is extern "system" and can't capture state, so the target
+// pid and the found hwnd travel through this struct via the raw lparam pointer.
+#[cfg(target_os = "windows")]
+struct FindWindowCtx {
+    pid: u32,
+    hwnd: isize,
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn enum_windows_proc(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+) -> i32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindowVisible};
+    let ctx = &mut *(lparam as *mut FindWindowCtx);
+    if IsWindowVisible(hwnd) == 0 {
+        return 1;
+    }
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if pid == ctx.pid {
+        ctx.hwnd = hwnd as isize;
+        return 0;
+    }
+    1
+}
+
+/// Restores + foregrounds the target process's first visible top-level window.
+/// Returns false (caller then spawns a fresh instance) when none is found yet.
+#[cfg(target_os = "windows")]
+fn focus_window_for_pid(pid: u32) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+    let mut ctx = FindWindowCtx { pid, hwnd: 0 };
+    unsafe {
+        EnumWindows(Some(enum_windows_proc), &mut ctx as *mut _ as isize);
+        if ctx.hwnd == 0 {
+            return false;
+        }
+        let hwnd = ctx.hwnd as windows_sys::Win32::Foundation::HWND;
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        SetForegroundWindow(hwnd) != 0
+    }
 }
 
 #[tauri::command]

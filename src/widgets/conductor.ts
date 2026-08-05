@@ -198,6 +198,10 @@ export const conductorWidget: TaskbarWidget = {
   id: "conductor",
   name: "Claude usage",
   flyout: { widthCss: 320, heightCss: 300 },
+  menuItems: () => [{ id: "open-app", label: "Open Claude Conductor" }],
+  onMenuAction: (id) => {
+    if (id === "open-app") invoke("focus_or_launch_app", { app: "conductor" }).catch(() => {});
+  },
   mountTile(root) {
     return subscribe((u) => render(tileTemplate(u), root));
   },
