@@ -1,133 +1,84 @@
-/* Decorated, opaque window: base.css leaves html/body transparent for the
-   strip/flyout, so this overrides to a solid dark background here. */
+/* Decorated, opaque window - the kit's own .kit-settings paints --kit-bg over
+   the full page, this just establishes the height chain down to it. */
+html,
+body,
+#dashboard {
+  height: 100%;
+  margin: 0;
+}
+
 .dashboard-body {
-  background: rgb(24, 24, 26);
-  height: 100vh;
-  overflow: hidden;
   cursor: auto;
 }
 
-.dash {
-  display: flex;
-  height: 100vh;
-}
-
-.dash-nav {
-  width: 150px;
-  flex: none;
+#dashboard {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 16px 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
 
-.nav-item {
-  text-align: left;
-  background: transparent;
-  border: none;
-  color: inherit;
-  font: inherit;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
+#settings-header {
+  flex: none;
 }
 
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.dash-content {
+#settings-body {
   flex: 1;
-  overflow-y: auto;
-  padding: 20px 28px 40px;
+  min-height: 0;
 }
 
-.dash-content h2 {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 24px 0 12px;
+/* ---------- widget list (custom field inside the "Widgets" section) ---------- */
+
+.widget-enabled-list,
+.widget-disabled-list {
+  display: flex;
+  flex-direction: column;
 }
 
-.dash-content h2:first-child {
-  margin-top: 0;
+.widget-list-divider {
+  margin-top: 10px;
 }
 
 .widget-row {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  padding: 8px 0;
+  border-bottom: 1px solid var(--kit-border);
 }
 
-.widget-head {
+.widget-row:last-child {
+  border-bottom: none;
+}
+
+.widget-row.dragging {
+  background: var(--kit-bg-hover);
+  opacity: 0.85;
+}
+
+.widget-row-head {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: var(--kit-row-pad-y, 9px) 0;
+  min-height: var(--kit-row-min-h, 44px);
 }
 
-.widget-head .name {
+.widget-drag-handle {
+  cursor: grab;
+  opacity: 0.5;
+  font-size: 14px;
+}
+
+.widget-drag-spacer {
+  width: 14px;
+  flex: none;
+}
+
+.widget-row-name {
   flex: 1;
-  font-size: 13px;
 }
 
-.widget-actions {
-  display: flex;
-  gap: 4px;
+.widget-row-edit {
+  font-size: 0.78rem;
+  padding: 4px 10px;
 }
 
-.widget-actions button {
-  background: rgba(255, 255, 255, 0.06);
-  border: none;
-  color: inherit;
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  font-size: 11px;
-}
-
-.widget-actions button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.widget-actions button:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.widget-config {
-  padding: 10px 0 4px 30px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.field-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 12px;
-  max-width: 360px;
-  cursor: auto;
-}
-
-.field-row input[type="number"],
-.field-row select {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: inherit;
-  border-radius: 4px;
-  padding: 4px 6px;
-  font: inherit;
-  width: 140px;
-}
-
-.field-row input[type="checkbox"] {
-  accent-color: #4f9cf9;
-}
-
-.empty {
-  padding: 20px;
-  opacity: 0.6;
-  font-size: 13px;
+.widget-row-config {
+  padding: 0 0 10px 24px;
 }

@@ -1,265 +1,52 @@
 import "@phosphor-icons/web/regular";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { html, render } from "lit-html";
 import { reportErrors } from "./shared/report-errors";
-import { ConfigField, Settings, TaskbarWidget, widgetConfig } from "./shared/widget";
-import { allWidgets } from "./widgets/registry";
+import { mountSettings } from "./views/settings/settings";
+import { expandWidgetInList } from "./views/settings/widget-list-field";
 
 reportErrors("dashboard");
 
 // No native context/inspect menu anywhere in this app's webviews.
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
-let settings: Settings | null = null;
-let expandedId: string | null = null;
-// Registry is the source of truth (Task Manager's Startup tab can remove the entry),
-// so this lives outside Settings/save_settings, not mirrored into settings.json.
-let autostart = false;
-const root = document.getElementById("dashboard")!;
+const headerRoot = document.getElementById("settings-header")!;
+const bodyRoot = document.getElementById("settings-body")!;
 
-async function load() {
-  settings = await invoke<Settings>("get_settings").catch(() => null);
-  autostart = await invoke<boolean>("get_autostart").catch(() => false);
-  renderAll();
-}
+// Kept fresh by every renderSettingsPage page-change, so goToRoot() (the deep
+// link's "get back to root before navigating into Widgets" step) always pops
+// against the current stack depth rather than a stale snapshot.
+let depth = 1;
+let pop: () => void = () => {};
 
-// Re-reads rather than trusting `on`: a failed write must not leave the box ticked.
-async function toggleAutostart(on: boolean) {
-  await invoke("set_autostart", { enabled: on }).catch(() => {});
-  autostart = await invoke<boolean>("get_autostart").catch(() => autostart);
-  renderAll();
-}
-
-// Every mutation writes the full Settings object back; save_settings also emits
-// "widgets-changed" so the strip (and flyout, for widget_config) pick it up.
-function save(next: Settings) {
-  settings = next;
-  invoke("save_settings", { newSettings: next }).catch(() => {});
-  renderAll();
-}
-
-function toggleWidget(id: string, on: boolean) {
-  if (!settings) return;
-  const enabled = settings.enabled_widgets.filter((w) => w !== id);
-  const hidden = settings.hidden_widgets.filter((w) => w !== id);
-  if (on) enabled.push(id);
-  else hidden.push(id);
-  save({ ...settings, enabled_widgets: enabled, hidden_widgets: hidden });
-}
-
-function moveWidget(id: string, dir: -1 | 1) {
-  if (!settings) return;
-  const order = [...settings.enabled_widgets];
-  const i = order.indexOf(id);
-  const j = i + dir;
-  if (i < 0 || j < 0 || j >= order.length) return;
-  [order[i], order[j]] = [order[j], order[i]];
-  save({ ...settings, enabled_widgets: order });
-}
-
-function setFieldValue(widgetId: string, key: string, value: unknown) {
-  if (!settings) return;
-  const cfg = { ...widgetConfig(settings, widgetId), [key]: value };
-  save({ ...settings, widget_config: { ...settings.widget_config, [widgetId]: cfg } });
-}
-
-function fieldRow(widgetId: string, field: ConfigField) {
-  const current = widgetConfig(settings, widgetId)[field.key] ?? field.default;
-  if (field.type === "toggle") {
-    return html`
-      <label class="field-row">
-        <span>${field.label}</span>
-        <input
-          type="checkbox"
-          .checked=${!!current}
-          @change=${(e: Event) =>
-            setFieldValue(widgetId, field.key, (e.target as HTMLInputElement).checked)}
-        />
-      </label>
-    `;
-  }
-  if (field.type === "number") {
-    return html`
-      <label class="field-row">
-        <span>${field.label}</span>
-        <input
-          type="number"
-          .value=${String(current ?? "")}
-          @change=${(e: Event) =>
-            setFieldValue(widgetId, field.key, Number((e.target as HTMLInputElement).value))}
-        />
-      </label>
-    `;
-  }
-  return html`
-    <label class="field-row">
-      <span>${field.label}</span>
-      <select
-        @change=${(e: Event) =>
-          setFieldValue(widgetId, field.key, (e.target as HTMLSelectElement).value)}
-      >
-        ${(field.options ?? []).map(
-          (o) => html`<option value=${o.value} ?selected=${o.value === current}>${o.label}</option>`,
-        )}
-      </select>
-    </label>
-  `;
-}
-
-function widgetRow(w: TaskbarWidget, index: number, total: number) {
-  const isEnabled = settings?.enabled_widgets.includes(w.id) ?? false;
-  const isExpanded = expandedId === w.id;
-  const fields = w.configFields?.() ?? [];
-  return html`
-    <div class="widget-row" id="widget-${w.id}">
-      <div class="widget-head">
-        <input
-          type="checkbox"
-          .checked=${isEnabled}
-          @change=${(e: Event) => toggleWidget(w.id, (e.target as HTMLInputElement).checked)}
-        />
-        <span class="name">${w.name}</span>
-        <div class="widget-actions">
-          <button ?disabled=${!isEnabled || index === 0} @click=${() => moveWidget(w.id, -1)}>
-            <i class="ph ph-caret-up"></i>
-          </button>
-          <button
-            ?disabled=${!isEnabled || index === total - 1}
-            @click=${() => moveWidget(w.id, 1)}
-          >
-            <i class="ph ph-caret-down"></i>
-          </button>
-          ${fields.length
-            ? html`<button
-                @click=${() => {
-                  expandedId = isExpanded ? null : w.id;
-                  renderAll();
-                }}
-              >
-                Edit
-              </button>`
-            : null}
-        </div>
-      </div>
-      ${isExpanded && fields.length
-        ? html`<div class="widget-config">${fields.map((f) => fieldRow(w.id, f))}</div>`
-        : null}
-    </div>
-  `;
-}
-
-function scrollToSection(id: string) {
-  document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth" });
-}
-
-function renderAll() {
-  if (!settings) {
-    render(html`<div class="empty">Loading…</div>`, root);
-    return;
-  }
-  const order = settings.enabled_widgets;
-  const ordered = [...allWidgets()].sort((a, b) => {
-    const ia = order.indexOf(a.id);
-    const ib = order.indexOf(b.id);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  });
+function renderHeader(title: string, d: number, p: () => void): void {
+  depth = d;
+  pop = p;
   render(
     html`
-      <div class="dash">
-        <nav class="dash-nav">
-          <button class="nav-item" @click=${() => scrollToSection("widgets")}>Widgets</button>
-          <button class="nav-item" @click=${() => scrollToSection("host")}>Host</button>
-        </nav>
-        <div class="dash-content">
-          <section id="section-widgets">
-            <h2>Widgets</h2>
-            ${ordered.map((w) => widgetRow(w, order.indexOf(w.id), order.length))}
-          </section>
-          <section id="section-host">
-            <h2>Host</h2>
-            <label class="field-row">
-              <span>Start with Windows</span>
-              <input
-                type="checkbox"
-                .checked=${autostart}
-                @change=${(e: Event) => toggleAutostart((e.target as HTMLInputElement).checked)}
-              />
-            </label>
-            <label class="field-row">
-              <span>Only show when the taskbar is visible</span>
-              <input
-                type="checkbox"
-                .checked=${settings.follow_taskbar}
-                @change=${(e: Event) =>
-                  save({
-                    ...settings!,
-                    follow_taskbar: (e.target as HTMLInputElement).checked,
-                  })}
-              />
-            </label>
-            <label class="field-row">
-              <span>Left margin (px)</span>
-              <input
-                type="number"
-                min="0"
-                .value=${String(settings.left_margin)}
-                @change=${(e: Event) =>
-                  save({
-                    ...settings!,
-                    left_margin: Number((e.target as HTMLInputElement).value),
-                  })}
-              />
-            </label>
-            <label class="field-row">
-              <span>Stats poll interval (s)</span>
-              <input
-                type="number"
-                min="1"
-                .value=${String(settings.stats_poll_seconds)}
-                @change=${(e: Event) =>
-                  save({
-                    ...settings!,
-                    stats_poll_seconds: Math.max(
-                      1,
-                      Number((e.target as HTMLInputElement).value),
-                    ),
-                  })}
-              />
-            </label>
-            <label class="field-row">
-              <span>Widget opacity (${settings.opacity}%)</span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                .value=${String(settings.opacity)}
-                @change=${(e: Event) =>
-                  save({
-                    ...settings!,
-                    opacity: Number((e.target as HTMLInputElement).value),
-                  })}
-              />
-            </label>
-          </section>
-        </div>
+      <div class="kit-header">
+        ${depth > 1
+          ? html`<button class="kit-header-back" @click=${() => pop()}>‹ Back</button>`
+          : html`<span class="kit-header-spacer"></span>`}
+        <h1 class="kit-header-title">${title}</h1>
+        <span class="kit-header-spacer"></span>
       </div>
     `,
-    root,
+    headerRoot,
   );
 }
 
-listen<{ section: string | null }>("dashboard-navigate", (e) => {
-  const section = e.payload.section;
-  if (!section) {
-    scrollToSection("widgets");
-    return;
-  }
-  expandedId = section;
-  renderAll();
-  requestAnimationFrame(() =>
-    document.getElementById(`widget-${section}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
-  );
-});
+function goToRoot(): void {
+  while (depth > 1) pop();
+}
 
-load();
+mountSettings(bodyRoot, { onHeaderChange: renderHeader });
+
+// "Edit this widget" from a tile's right-click menu (tile_menu.rs's open_dashboard):
+// null section just surfaces the widget list, an id also expands + scrolls to it.
+listen<{ section: string | null }>("dashboard-navigate", (e) => {
+  goToRoot();
+  document.querySelector<HTMLElement>('[data-nav="section-widgets"]')?.click();
+  const widgetId = e.payload.section;
+  if (widgetId) expandWidgetInList(widgetId);
+});

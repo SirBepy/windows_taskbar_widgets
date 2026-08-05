@@ -1,6 +1,6 @@
 use crate::settings::{self, SettingsState};
 use serde::{Deserialize, Serialize};
-use tauri::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Window};
 
 #[derive(Deserialize)]
@@ -17,6 +17,16 @@ struct TileMenuAction {
 
 fn mk_item(app: &AppHandle, id: String, label: &str) -> Result<MenuItem<tauri::Wry>, String> {
     MenuItem::with_id(app, id, label, true, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Shared by the tray menu and the tile menu's "App options" submenu so the
+/// two item lists can't drift apart; ids stay "dashboard"/"quit" either way.
+pub fn app_menu_items(
+    app: &AppHandle,
+) -> tauri::Result<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> {
+    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    Ok((dashboard, quit))
 }
 
 #[tauri::command]
@@ -45,6 +55,12 @@ pub fn show_tile_menu(
             menu.append(&mk_item(&app, id, &it.label)?).map_err(|e| e.to_string())?;
         }
     }
+    menu.append(&PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    let (dashboard, quit) = app_menu_items(&app).map_err(|e| e.to_string())?;
+    let app_options = Submenu::with_items(&app, "App options", true, &[&dashboard, &quit])
+        .map_err(|e| e.to_string())?;
+    menu.append(&app_options).map_err(|e| e.to_string())?;
     menu.popup(window).map_err(|e| e.to_string())
 }
 

@@ -13,7 +13,7 @@ use settings::{Settings, SettingsState};
 use std::sync::Mutex;
 use tauri::{
     image::Image,
-    menu::{Menu, MenuItem},
+    menu::Menu,
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, WindowEvent,
 };
@@ -23,17 +23,37 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
     state.0.lock().map(|s| s.clone()).unwrap_or_default()
 }
 
+// Param named `settings` (not `new_settings`): the kit's renderer.ts hardcodes
+// `invoke(saveCmd, { settings: current })`, so this name is the IPC contract.
 #[tauri::command]
-fn save_settings(app: AppHandle, new_settings: Settings) -> Result<(), String> {
-    settings::persist(&app, &new_settings)?;
+fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    self::settings::persist(&app, &settings)?;
     let state = app.state::<SettingsState>();
     if let Ok(mut s) = state.0.lock() {
-        *s = new_settings;
+        *s = settings;
     }
     // Broadcast (not emit_to "strip"): the flyout window also renders widget_config
     // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
     let _ = app.emit("widgets-changed", ());
     Ok(())
+}
+
+/// Minimal version info for the kit's About page. No build-date/install-date
+/// tracking yet (unlike pomodoro's fuller impl) - kept to what About needs today.
+#[derive(serde::Serialize)]
+struct VersionInfo {
+    version: String,
+    build_date: String,
+    installed_at: Option<String>,
+}
+
+#[tauri::command]
+fn get_version_info() -> VersionInfo {
+    VersionInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
+        installed_at: None,
+    }
 }
 
 /// The strip hugs its content: JS reports the row's CSS width after each render.
@@ -67,8 +87,7 @@ fn toggle_strip(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let dashboard = MenuItem::with_id(app, "dashboard", "Dashboard", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let (dashboard, quit) = tile_menu::app_menu_items(app)?;
     let menu = Menu::with_items(app, &[&dashboard, &quit])?;
     let icon: Image = match app.default_window_icon() {
         Some(i) => i.clone(),
@@ -107,6 +126,8 @@ pub fn run() {
         .manage(bridge_pomodoro::new_state())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_kit_updater::plugin())
+        // Backs the About page's "Relaunch now" button after an update installs.
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("strip") {
                 let _ = w.show();
@@ -167,6 +188,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            get_version_info,
             set_strip_width,
             log_js,
             autostart::get_autostart,
