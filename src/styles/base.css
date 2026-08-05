@@ -75,19 +75,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.stat .unit {
-  opacity: 0.55;
-  font-size: 10px;
-}
-
-.stat.warn .val {
-  color: #f0b232;
-}
-
-.stat.hot .val {
-  color: #f04747;
-}
-
 /* ---------- stat tiles (cpu/ram/gpu/disk): label above value, divided ---------- */
 
 .tile-stat {
