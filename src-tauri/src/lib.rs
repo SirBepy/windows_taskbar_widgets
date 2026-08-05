@@ -130,10 +130,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    // Loaded before the Builder exists: config-declared windows start webview JS
+    // inside Builder::build(), before even the first line of setup() runs.
+    let settings_path = settings::resolve_path(&context.config().identifier)
+        .expect("resolve settings path");
+    let settings = settings::load(&settings_path);
+
     tauri::Builder::default()
-        // Managed on the Builder, not in setup(): the strip webview can invoke
-        // get_settings before setup() runs when the vite server is already warm.
-        .manage(SettingsState(Mutex::new(Settings::default())))
+        // Managed with the real, already-loaded settings so SettingsState is never
+        // observably Settings::default() to any command, including ones fired by a
+        // webview that starts executing before setup() runs.
+        .manage(SettingsState(Mutex::new(settings)))
         .manage(system_stats::StatsState(Mutex::new(Default::default())))
         .manage(bridge_pomodoro::new_state())
         .plugin(tauri_plugin_dialog::init())
@@ -164,12 +172,14 @@ pub fn run() {
         )
         .setup(|app| {
             let handle = app.handle().clone();
-            let settings = settings::load(&handle);
             log::info!("app started; version={}", env!("CARGO_PKG_VERSION"));
-            apply_capture_exclusion(&handle, settings.hide_from_capture);
-            if let Ok(mut s) = handle.state::<SettingsState>().0.lock() {
-                *s = settings;
-            }
+            let hide_from_capture = handle
+                .state::<SettingsState>()
+                .0
+                .lock()
+                .map(|s| s.hide_from_capture)
+                .unwrap_or(false);
+            apply_capture_exclusion(&handle, hide_from_capture);
 
             let _ = taskbar::position_strip(&handle, 320.0);
             if let Some(win) = handle.get_webview_window("strip") {
@@ -223,6 +233,6 @@ pub fn run() {
             tauri_kit_settings::kit_copy_logs,
             tauri_kit_settings::kit_reset_settings,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

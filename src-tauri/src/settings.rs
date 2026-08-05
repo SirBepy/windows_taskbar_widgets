@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_kit_settings::KitSettings;
@@ -54,9 +55,19 @@ pub struct SettingsState(pub Mutex<Settings>);
 
 const SETTINGS_FILENAME: &str = "settings.json";
 
-pub fn load(app: &AppHandle) -> Settings {
-    let mut settings =
-        tauri_kit_settings::load_for::<_, Settings>(app, SETTINGS_FILENAME).unwrap_or_default();
+// Mirrors tauri_kit_settings::paths::settings_path but takes the bundle identifier
+// directly instead of an AppHandle, so it can resolve before any window (and its
+// webview JS) is built - AppHandle doesn't exist that early.
+pub fn resolve_path(identifier: &str) -> std::io::Result<PathBuf> {
+    let dir = dirs::data_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no data dir"))?
+        .join(identifier);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join(SETTINGS_FILENAME))
+}
+
+pub fn load(path: &Path) -> Settings {
+    let mut settings: Settings = tauri_kit_settings::store::load(path).unwrap_or_default();
     // Pre-split "system" widget id: expand in place so existing tile order/position is kept.
     if let Some(i) = settings.enabled_widgets.iter().position(|id| id == "system") {
         settings.enabled_widgets.splice(
@@ -69,4 +80,27 @@ pub fn load(app: &AppHandle) -> Settings {
 
 pub fn persist(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     tauri_kit_settings::save_for(app, SETTINGS_FILENAME, settings).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    // Proves deserialization, not the startup race (that needs a running app). Guards
+    // against `load` silently falling back to Default on a file with real values.
+    #[test]
+    fn load_returns_file_values_not_defaults() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let written = Settings { left_margin: 44, opacity: 65, hide_from_capture: true, ..Settings::default() };
+        tauri_kit_settings::store::save(&path, &written).unwrap();
+
+        let loaded = load(&path);
+
+        assert_eq!(loaded.left_margin, 44);
+        assert_eq!(loaded.opacity, 65);
+        assert!(loaded.hide_from_capture);
+        assert_ne!(loaded.left_margin, Settings::default().left_margin);
+    }
 }

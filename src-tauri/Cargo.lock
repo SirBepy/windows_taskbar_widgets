@@ -5705,6 +5705,7 @@ dependencies = [
 name = "windows-taskbar-widgets"
 version = "0.1.1"
 dependencies = [
+ "dirs",
  "futures-util",
  "log",
  "nvml-wrapper",
@@ -5723,6 +5724,7 @@ dependencies = [
  "tauri_kit_settings",
  "tauri_kit_updater",
  "tauri_kit_window",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "windows-sys 0.61.2",
