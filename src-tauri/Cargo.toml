@@ -34,6 +34,9 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect"] }
 futures-util = { version = "0.3", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# Already resolved transitively (tauri-codegen et al pull 1.24.0); promoted to a direct
+# dep only to generate divider ids in settings.rs, no new crate enters the tree.
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

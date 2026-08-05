@@ -35,6 +35,7 @@ export interface Settings {
   follow_taskbar: boolean;
   hide_from_capture: boolean;
   widget_config: Record<string, Record<string, unknown>>;
+  dividers_migrated: boolean;
 }
 
 /** Sets --widget-opacity, the 0-100 setting as a CSS alpha. */

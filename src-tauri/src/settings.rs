@@ -25,6 +25,9 @@ pub struct Settings {
     pub hide_from_capture: bool,
     // Keyed by widget id; each value is that widget's own free-form config object.
     pub widget_config: HashMap<String, serde_json::Value>,
+    // One-time guard for the divider backfill in `load`; must stay false once so a
+    // pre-existing settings.json (missing this key) still runs it exactly once.
+    pub dividers_migrated: bool,
     #[serde(flatten)]
     pub kit: KitSettings,
 }
@@ -46,6 +49,7 @@ impl Default for Settings {
             follow_taskbar: true,
             hide_from_capture: false,
             widget_config: HashMap::new(),
+            dividers_migrated: false,
             kit: KitSettings::default(),
         }
     }
@@ -66,7 +70,31 @@ pub fn resolve_path(identifier: &str) -> std::io::Result<PathBuf> {
     Ok(dir.join(SETTINGS_FILENAME))
 }
 
+const STAT_WIDGET_IDS: [&str; 4] = ["cpu", "ram", "gpu", "disk"];
+
+// Matches the pre-0c4e816 `.tile-stat` border-right: a divider between each adjacent
+// pair of stat tiles, never trailing (the old `:not(:has(~ .tile .tile-stat))` rule
+// cleared it from the last one). No-ops if a divider is already present anywhere,
+// so a partially-migrated or hand-edited list is left alone.
+fn migrate_dividers(enabled_widgets: &mut Vec<String>) {
+    if enabled_widgets.iter().any(|id| id.starts_with("divider:")) {
+        return;
+    }
+    let mut out = Vec::with_capacity(enabled_widgets.len());
+    for (i, id) in enabled_widgets.iter().enumerate() {
+        out.push(id.clone());
+        let next_is_stat = enabled_widgets
+            .get(i + 1)
+            .is_some_and(|n| STAT_WIDGET_IDS.contains(&n.as_str()));
+        if STAT_WIDGET_IDS.contains(&id.as_str()) && next_is_stat {
+            out.push(format!("divider:{}", uuid::Uuid::new_v4()));
+        }
+    }
+    *enabled_widgets = out;
+}
+
 pub fn load(path: &Path) -> Settings {
+    let existed = path.exists();
     let mut settings: Settings = tauri_kit_settings::store::load(path).unwrap_or_default();
     // Pre-split "system" widget id: expand in place so existing tile order/position is kept.
     if let Some(i) = settings.enabled_widgets.iter().position(|id| id == "system") {
@@ -74,6 +102,14 @@ pub fn load(path: &Path) -> Settings {
             i..=i,
             ["cpu", "ram", "gpu", "disk"].map(String::from),
         );
+    }
+    // A fresh install (no file) has nothing to backfill; mark it migrated so first-run
+    // defaults are never retro-fitted with dividers later.
+    if !settings.dividers_migrated {
+        if existed {
+            migrate_dividers(&mut settings.enabled_widgets);
+        }
+        settings.dividers_migrated = true;
     }
     settings
 }
@@ -102,5 +138,89 @@ mod tests {
         assert_eq!(loaded.opacity, 65);
         assert!(loaded.hide_from_capture);
         assert_ne!(loaded.left_margin, Settings::default().left_margin);
+    }
+
+    // Collapses each divider id to "D" so assertions don't depend on its uuid suffix.
+    fn shape(ids: &[String]) -> Vec<String> {
+        ids.iter()
+            .map(|id| if id.starts_with("divider:") { "D".to_string() } else { id.clone() })
+            .collect()
+    }
+
+    #[test]
+    fn migrates_dividers_between_adjacent_stat_tiles_only() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let written = Settings {
+            enabled_widgets: ["cpu", "ram", "gpu", "disk", "conductor"].map(String::from).into(),
+            ..Settings::default()
+        };
+        tauri_kit_settings::store::save(&path, &written).unwrap();
+
+        let loaded = load(&path);
+
+        assert_eq!(
+            shape(&loaded.enabled_widgets),
+            ["cpu", "D", "ram", "D", "gpu", "D", "disk", "conductor"]
+        );
+        assert!(loaded.dividers_migrated);
+    }
+
+    #[test]
+    fn skips_divider_across_a_non_stat_boundary() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let written = Settings {
+            enabled_widgets: ["cpu", "ram", "conductor", "gpu", "disk"].map(String::from).into(),
+            ..Settings::default()
+        };
+        tauri_kit_settings::store::save(&path, &written).unwrap();
+
+        let loaded = load(&path);
+
+        assert_eq!(shape(&loaded.enabled_widgets), ["cpu", "D", "ram", "conductor", "gpu", "D", "disk"]);
+    }
+
+    #[test]
+    fn migration_does_not_rerun_once_marked() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let written = Settings {
+            enabled_widgets: ["cpu", "ram"].map(String::from).into(),
+            dividers_migrated: true,
+            ..Settings::default()
+        };
+        tauri_kit_settings::store::save(&path, &written).unwrap();
+
+        let loaded = load(&path);
+
+        assert_eq!(shape(&loaded.enabled_widgets), ["cpu", "ram"]);
+    }
+
+    #[test]
+    fn leaves_a_list_that_already_has_a_divider_alone() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let written = Settings {
+            enabled_widgets: ["cpu", "divider:existing", "ram", "gpu", "disk"].map(String::from).into(),
+            ..Settings::default()
+        };
+        tauri_kit_settings::store::save(&path, &written).unwrap();
+
+        let loaded = load(&path);
+
+        assert_eq!(loaded.enabled_widgets, ["cpu", "divider:existing", "ram", "gpu", "disk"]);
+        assert!(loaded.dividers_migrated);
+    }
+
+    #[test]
+    fn fresh_install_skips_migration_but_is_marked_done() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let loaded = load(&path);
+
+        assert_eq!(shape(&loaded.enabled_widgets), Settings::default().enabled_widgets);
+        assert!(loaded.dividers_migrated);
     }
 }
