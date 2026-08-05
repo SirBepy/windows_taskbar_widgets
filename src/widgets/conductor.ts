@@ -61,26 +61,60 @@ function requestRefresh(e: Event) {
   invoke("conductor_refresh_now").catch(() => {});
 }
 
+const FIVE_HOUR_MS = 5 * 3_600_000;
+const SEVEN_DAY_MS = 7 * 86_400_000;
+
+// Same warn/hot hexes as .tile-stat's CSS classes, reused literally since this
+// is an inline SVG stroke and can't reference a CSS class.
+const HEAT_STROKE: Record<string, string> = { warn: "#f0b232", hot: "#f04747" };
+const TRACK_COLOR = "rgba(255, 255, 255, 0.13)";
+const PACE_COLOR = "rgba(148, 163, 184, 0.55)"; // slate: distinct from the white track and any warm heat/account colour
+
+// null means "don't draw a pace arc" - not "assume 0" - covers missing resets_at,
+// an already-past reset, and any out-of-window fraction (bad/stale data).
+function elapsedFraction(resetsAt: string | null, windowMs: number): number | null {
+  if (!resetsAt) return null;
+  const msLeft = new Date(resetsAt).getTime() - Date.now();
+  if (!Number.isFinite(msLeft) || msLeft <= 0) return null;
+  const frac = 1 - msLeft / windowMs;
+  return frac >= 0 && frac <= 1 ? frac : null;
+}
+
 // Mirrors conductor's own dual-ring dial: outer = 5h window, inner = 7d window.
 // Clicking re-triggers a live claude.ai poll (fire-and-forget).
 function miniDial(a: AccountUsage) {
-  const ring = (r: number, w: number, pct: number, opacity: number) => {
+  const ring = (r: number, w: number, pct: number, pace: number | null, opacity: number) => {
     const c = 2 * Math.PI * r;
-    const filled = (Math.min(100, Math.max(0, pct)) / 100) * c;
+    const usage = Math.min(1, Math.max(0, pct / 100));
+    const filled = usage * c;
+    const h = heat(pct);
+    const progressColor = h ? HEAT_STROKE[h] : pace !== null && usage > pace ? HEAT_STROKE.warn : a.colour;
     return svg`
-      <circle cx="16" cy="16" r="${r}" fill="none" stroke="${a.colour}"
-        stroke-opacity="0.18" stroke-width="${w}" />
-      <circle cx="16" cy="16" r="${r}" fill="none" stroke="${a.colour}"
+      <circle cx="16" cy="16" r="${r}" fill="none" stroke="${TRACK_COLOR}" stroke-width="${w}" />
+      ${
+        pace === null
+          ? null
+          : svg`<circle cx="16" cy="16" r="${r}" fill="none" stroke="${PACE_COLOR}" stroke-width="${w}"
+              stroke-dasharray="${pace * c} ${c - pace * c}" stroke-linecap="round"
+              transform="rotate(-90 16 16)" />`
+      }
+      <circle cx="16" cy="16" r="${r}" fill="none" stroke="${progressColor}"
         stroke-opacity="${opacity}" stroke-width="${w}"
         stroke-dasharray="${filled} ${c - filled}"
         stroke-linecap="round" transform="rotate(-90 16 16)" />
     `;
   };
+  const fiveHourPace = elapsedFraction(a.five_hour_resets_at, FIVE_HOUR_MS);
+  const sevenDayPace = elapsedFraction(a.seven_day_resets_at, SEVEN_DAY_MS);
+  const paceNote = (pace: number | null) => (pace === null ? "" : ` (pace ${(pace * 100).toFixed(0)}%)`);
   return svg`
     <svg class="dial" width="30" height="30" viewBox="0 0 32 32" @click=${requestRefresh}>
-      <title>${a.label}: 5h ${a.five_hour_pct.toFixed(0)}% · 7d ${a.seven_day_pct.toFixed(0)}%</title>
-      ${ring(13, 3.4, a.five_hour_pct, 0.95)}
-      ${ring(8, 2.6, a.seven_day_pct, 0.7)}
+      <title>${a.label}: 5h ${a.five_hour_pct.toFixed(0)}%${paceNote(fiveHourPace)} · 7d ${a.seven_day_pct.toFixed(0)}%${paceNote(sevenDayPace)}</title>
+      ${ring(13, 3.4, a.five_hour_pct, fiveHourPace, 0.95)}
+      ${ring(8, 2.6, a.seven_day_pct, sevenDayPace, 0.7)}
+      <foreignObject x="11" y="11" width="10" height="10">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="dial-icon"><i class="ph ph-robot"></i></div>
+      </foreignObject>
     </svg>
   `;
 }
