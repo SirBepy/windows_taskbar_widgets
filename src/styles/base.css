@@ -293,59 +293,54 @@ body {
   padding: 8px 0;
 }
 
-/* ---------- pomodoro flyout ---------- */
+/* ---------- pomodoro tile (self-contained: no flyout, no hover) ---------- */
 
-.pomo-time {
-  font-size: 34px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  margin: 6px 0 14px;
-}
-
-.pomo-tabs {
+.pomo-tile {
   display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.pomo-tab {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.06);
-  border: none;
-  color: inherit;
-  border-radius: 4px;
-  padding: 6px 4px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.pomo-tab:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.pomo-tab.active {
-  background: rgba(255, 255, 255, 0.22);
-  font-weight: 600;
-}
-
-.pomo-actions {
-  display: flex;
+  align-items: center;
   gap: 6px;
 }
 
-.pomo-btn {
-  flex: 1;
+.pomo-tile.muted {
+  opacity: 0.55;
+}
+
+/* width (not min-width) + overflow:hidden hard-pins the box for fmtTime's
+   widest case ("9:59:59", 7 chars); a shorter mm:ss or "--:--" just leaves
+   slack, it can never grow the tile past this. */
+.pomo-tile-time {
+  display: inline-block;
+  width: calc(7ch + 6px);
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.pomo-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.09);
   border: none;
+  border-radius: 4px;
   color: inherit;
-  border-radius: 5px;
-  padding: 8px;
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
 }
 
-.pomo-btn:hover {
+.pomo-toggle:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.pomo-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pomo-toggle .ph {
+  font-size: 10px;
+  opacity: 1;
 }
