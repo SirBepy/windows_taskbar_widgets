@@ -75,6 +75,7 @@ const configFields: ConfigField[] = [
 export const gpuWidget: TaskbarWidget = {
   id: "gpu",
   name: "GPU",
+  icon: "ph-graphics-card",
   flyout: { widthCss: 310, heightCss: 300 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {

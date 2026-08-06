@@ -79,6 +79,7 @@ let lastPrimaryDrive: string | null = null;
 export const diskWidget: TaskbarWidget = {
   id: "disk",
   name: "Disk",
+  icon: "ph-hard-drives",
   // Sized for 6 drives (a generous power-user max); beyond that #flyout's
   // overflow-y:auto scrolls instead of resizing the window.
   flyout: { widthCss: 285, heightCss: 245 },

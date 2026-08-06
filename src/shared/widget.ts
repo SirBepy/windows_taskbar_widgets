@@ -14,6 +14,8 @@ export interface ConfigField {
 export interface TaskbarWidget {
   id: string;
   name: string;
+  /** Phosphor class for the settings palette chip, e.g. "ph-cpu". */
+  icon?: string;
   /** Fixed at declare-time, sized for max content; see CLAUDE.md's fixed-size rule. Omit for tile-only widgets. */
   flyout?: { widthCss: number; heightCss: number };
   /** Render the always-visible strip tile. Returns a cleanup fn. */

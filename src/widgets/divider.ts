@@ -9,6 +9,7 @@ export function dividerWidget(id: string): TaskbarWidget {
   return {
     id,
     name: "Divider",
+    icon: "ph-minus",
     mountTile(root) {
       root.classList.add("divider-tile");
       render(html`<span class="divider-rule"></span>`, root);

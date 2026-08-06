@@ -1,12 +1,12 @@
 import { defineSchema } from "../../../vendor/tauri_kit/frontend/settings/schema";
-import { widgetListField } from "./widget-list-field";
+import { widgetStripField } from "./widget-strip-field";
 import { autostartField } from "./autostart-field";
 
 export const settingsSchema = defineSchema({
   sections: [
     {
       title: "Widgets",
-      fields: [widgetListField()],
+      fields: [widgetStripField()],
     },
     {
       title: "Host",

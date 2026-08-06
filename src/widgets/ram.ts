@@ -58,6 +58,7 @@ const configFields: ConfigField[] = [
 export const ramWidget: TaskbarWidget = {
   id: "ram",
   name: "RAM",
+  icon: "ph-memory",
   flyout: { widthCss: 320, heightCss: 270 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {

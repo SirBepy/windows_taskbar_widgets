@@ -197,6 +197,7 @@ function subscribe(onData: (u: ConductorUsage) => void): () => void {
 export const conductorWidget: TaskbarWidget = {
   id: "conductor",
   name: "Claude usage",
+  icon: "ph-robot",
   flyout: { widthCss: 320, heightCss: 300 },
   menuItems: () => [{ id: "open-app", label: "Open Claude Conductor" }],
   onMenuAction: (id) => {

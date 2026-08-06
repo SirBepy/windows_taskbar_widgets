@@ -1,3 +1,5 @@
+@import "./tile.css";
+
 /* Decorated, opaque window - the kit's own .kit-settings paints --kit-bg over
    the full page, this just establishes the height chain down to it. */
 html,
@@ -26,73 +28,192 @@ body,
   min-height: 0;
 }
 
-/* ---------- widget list (custom field inside the "Widgets" section) ---------- */
+/* ---------- widget strip (custom field inside the "Widgets" section) ---------- */
 
-.widget-enabled-list,
-.widget-disabled-list {
+.wsf-stage {
+  border: 1px solid var(--kit-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0f0e16 0%, #191824 100%);
+}
+
+.wsf-desktop {
+  height: 44px;
+}
+
+/* Fixed dark regardless of palette or light mode: this is a picture of the
+   Windows taskbar, not a surface of the settings window. */
+.wsf-bar {
   display: flex;
-  flex-direction: column;
+  align-items: stretch;
+  height: 48px;
+  padding: 4px 6px;
+  background: #1c1b26;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: #e8e8e8;
 }
 
-.widget-list-divider {
-  margin-top: 10px;
+.wsf-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  border-radius: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  transition: background 120ms ease;
 }
 
-.widget-row {
-  border-bottom: 1px solid var(--kit-border);
+.wsf-strip.wsf-drop {
+  background: rgba(157, 125, 252, 0.07);
 }
 
-.widget-row:last-child {
-  border-bottom: none;
-}
-
-.widget-row.dragging {
-  background: var(--kit-bg-hover);
-  opacity: 0.85;
-}
-
-.widget-row-head {
+.wsf-sys {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: var(--kit-row-pad-y, 9px) 0;
-  min-height: var(--kit-row-min-h, 44px);
-}
-
-.widget-drag-handle {
-  cursor: grab;
-  opacity: 0.5;
-  font-size: 14px;
-}
-
-.widget-drag-spacer {
-  width: 14px;
+  padding: 0 10px;
+  color: #55536e;
   flex: none;
 }
 
-.widget-row-name {
-  flex: 1;
+.wsf-sys .ph {
+  font-size: 15px;
 }
 
-.widget-row-edit {
+/* The preview mounts real widgets, so their own controls (pomodoro's play,
+   conductor's dials) would fire on click - the tile itself must be the target. */
+.wsf-strip .tile * {
+  pointer-events: none;
+}
+
+.wsf-strip .tile {
+  cursor: grab;
+  flex: none;
+}
+
+.wsf-selected {
+  background: rgba(157, 125, 252, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(157, 125, 252, 0.5);
+}
+
+.wsf-lifted {
+  display: none;
+}
+
+.wsf-slot {
+  flex: none;
+  border-radius: 6px;
+  background: rgba(157, 125, 252, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(157, 125, 252, 0.45);
+}
+
+.wsf-clone {
+  position: fixed;
+  z-index: 99;
+  pointer-events: none;
+  transform: scale(1.04);
+  opacity: 0.92;
+  background: #26243a;
+  color: #e8e8e8;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+}
+
+.wsf-clone.wsf-removing {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(157, 125, 252, 0.7);
+}
+
+.wsf-clone.wsf-removing::after {
+  content: "release to move to Available";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--kit-accent);
+}
+
+.wsf-hint {
   font-size: 0.78rem;
-  padding: 4px 10px;
+  color: var(--kit-text-dim);
+  margin: 8px 0 0;
 }
 
-.widget-row-config {
-  padding: 0 0 10px 24px;
+.wsf-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 46px;
+  padding: 8px;
+  border: 1px dashed var(--kit-border);
+  border-radius: 8px;
+  background: var(--kit-bg-alt);
+  transition: background 120ms ease, border-color 120ms ease;
 }
 
-.divider-row-label {
-  flex: 1;
+.wsf-palette.wsf-drop {
+  border-color: var(--kit-accent);
+  background: rgba(157, 125, 252, 0.08);
+}
+
+.wsf-chip {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--kit-border);
+  background: var(--kit-bg-hover);
+  font-size: 0.8rem;
+  cursor: grab;
+}
+
+.wsf-chip:hover {
+  border-color: var(--kit-accent);
+}
+
+.wsf-chip .ph {
+  font-size: 14px;
   opacity: 0.7;
 }
 
-.widget-add-divider {
-  margin-top: 8px;
+.wsf-config {
+  margin-top: 14px;
+  border: 1px solid var(--kit-border);
+  border-radius: 8px;
+  background: var(--kit-bg-alt);
+}
+
+.wsf-config-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--kit-border);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.wsf-config-head .ph {
+  color: var(--kit-accent);
+}
+
+.wsf-config .kit-row {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.wsf-config-empty {
+  padding: 14px;
+  font-size: 0.8rem;
+  color: var(--kit-text-dim);
+}
+
+.wsf-reset {
+  margin-top: 14px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

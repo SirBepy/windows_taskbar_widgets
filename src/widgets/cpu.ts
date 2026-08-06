@@ -53,6 +53,7 @@ const configFields: ConfigField[] = [
 export const cpuWidget: TaskbarWidget = {
   id: "cpu",
   name: "CPU",
+  icon: "ph-cpu",
   flyout: { widthCss: 245, heightCss: 270 },
   menuItems: () => [{ id: "task-manager", label: "Open Task Manager" }],
   onMenuAction: (id) => {

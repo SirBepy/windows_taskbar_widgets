@@ -92,6 +92,7 @@ function subscribe(onState: (s: PomodoroPush) => void): () => void {
 export const pomodoroWidget: TaskbarWidget = {
   id: "pomodoro",
   name: "Pomodoro",
+  icon: "ph-timer",
   menuItems: () => [{ id: "open-app", label: "Open Pomodoro Overlay" }],
   onMenuAction: (id) => {
     if (id === "open-app") invoke("focus_or_launch_app", { app: "pomodoro" }).catch(() => {});

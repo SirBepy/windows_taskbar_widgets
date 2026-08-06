@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { html, render } from "lit-html";
 import { reportErrors } from "./shared/report-errors";
 import { mountSettings } from "./views/settings/settings";
-import { expandWidgetInList } from "./views/settings/widget-list-field";
+import { selectWidgetInStrip } from "./views/settings/widget-strip-field";
 
 reportErrors("settings");
 
@@ -48,5 +48,5 @@ listen<{ section: string | null }>("settings-navigate", (e) => {
   goToRoot();
   document.querySelector<HTMLElement>('[data-nav="section-widgets"]')?.click();
   const widgetId = e.payload.section;
-  if (widgetId) expandWidgetInList(widgetId);
+  if (widgetId) selectWidgetInStrip(widgetId);
 });
