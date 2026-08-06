@@ -22,8 +22,8 @@ describe("fmtTime fits the reserved 7ch pomodoro tile budget", () => {
   });
 });
 
-describe("base.css pins .pomo-tile-time to a hard, non-growing width", () => {
-  const cssPath = fileURLToPath(new URL("../styles/base.css", import.meta.url));
+describe("tile.css pins .pomo-tile-time to a hard, non-growing width", () => {
+  const cssPath = fileURLToPath(new URL("../styles/tile.css", import.meta.url));
   const css = readFileSync(cssPath, "utf-8");
   const rule = css.match(/\.pomo-tile-time\s*\{[^}]*\}/)?.[0] ?? "";
 
