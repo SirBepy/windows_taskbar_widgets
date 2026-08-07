@@ -47,11 +47,11 @@ different dimensions.
 being rewritten. The **size** resolves as `overlay ?? flyout`, full stop. A widget declaring neither
 is simply not offered as overlay-placeable in the UI.
 
-Measuring a mounted tile to derive an overlay size was considered and **rejected**: CLAUDE.md
-requires a widget to size for its MAX case at declare time, and a measurement taken before a
-content-variable widget (a process list, a drive list) fills up would undersize it and then force
-exactly the live resize the rule bans. `pomodoro` has no `flyout` today, so it needs one line
-declaring `overlay` dims before it can be placed as an overlay.
+Since overlays are freely resizable (decision 6), the declared `overlay` dims are the **default and
+the minimum**, not a fixed footprint. Measuring a mounted tile to derive that default was considered
+and **rejected**: a measurement taken before a content-variable widget (a process list, a drive
+list) fills up would produce a nonsense minimum. `pomodoro` has no `flyout` today, so it needs one
+line declaring `overlay` dims before it can be placed as an overlay.
 
 ### 2. Placement model: drag-to-place, persisted as monitor plus x/y, with edge snapping.
 
@@ -135,7 +135,7 @@ settings, and the identifier is invisible to users. Renaming it would be pure co
 with a migration that can lose data. The repo directory name and the crate name are equally
 invisible and equally not worth churning.
 
-### 6. Per-overlay appearance: opacity override and scale, nothing more.
+### 6. Per-overlay appearance: opacity override and free resize.
 
 Joe asked to "configure how you want the overlay to look". Two knobs, both stored on the placement
 record itself rather than in a parallel store:
@@ -144,15 +144,27 @@ record itself rather than in a parallel store:
   hover boost already apply to the strip and the flyout via `applyOpacity`
   (`src/shared/widget.ts:44`); `src/overlay-main.ts` must call it too, and the override simply
   supplies a different number to the same CSS variable.
-- **Scale**, one of 1x / 1.25x / 1.5x, applied as a CSS `zoom` on the overlay root with the native
-  window sized to match. A desk-distance overlay wants to be bigger than a taskbar tile, and a
-  fixed set of steps keeps this a config action rather than a resize handle.
+- **Free resize by drag handle**, persisting width and height on the placement record. Chosen by
+  Joe on 2026-08-07 over a fixed set of scale steps.
 
 Theme is deliberately NOT per overlay: it follows the app theme the kit already owns, so overlays
 match the strip and the settings screen without a third source of truth.
 
-Both are config toggles, which CLAUDE.md's fixed-size rule explicitly permits to resize once as a
-deliberate user action. Neither is reachable from a live value change.
+**Free resize costs real work, and this is where it lands.** Three consequences, all of which are
+part of step 3 in the shipping order:
+
+1. **Every overlay renderer must reflow.** Today a widget is authored at exactly one size. An
+   arbitrary user-chosen size means each `mountOverlay` has to lay out fluidly, which is per-widget
+   work, not a host-level feature. The conductor dial and the process lists are the expensive ones.
+2. **Bounds are enforced by the host.** Minimum is the widget's declared `overlay` dims, so a
+   widget can never be dragged smaller than it was authored to survive. Maximum is the monitor work
+   area.
+3. **CLAUDE.md's fixed-size rule needs a sanctioned exception before this ships.** The rule bans a
+   mounted widget changing size, with a carve-out for a one-time config toggle. A live resize handle
+   is neither: it is a continuous deliberate user action. The invariant that must survive is the one
+   the rule actually protects, namely that **content never drives a size change**. Only the user's
+   handle may, and content reflows into whatever size the user chose. Add this to CLAUDE.md's
+   "Sanctioned exceptions" section as part of step 3, not before.
 
 ## Architecture
 
@@ -210,9 +222,11 @@ pub enum Placement {
         x: f64,
         y: f64,
         #[serde(default)]
+        w: Option<f64>,           // None = the widget's declared overlay width
+        #[serde(default)]
+        h: Option<f64>,
+        #[serde(default)]
         opacity: Option<u32>,     // None = inherit the global setting
-        #[serde(default = "one")]
-        scale: f64,
     },
 }
 ```
@@ -279,8 +293,8 @@ Carried from the todo, plus what this design adds:
   native cursor polling in `src-tauri/src/flyout.rs`), drag-to-reorder.
 - Existing installs open with every widget still in the strip and settings intact, with no
   migration code beyond `#[serde(default)]`.
-- An overlay does not resize on hover or on content change, per CLAUDE.md's fixed-size rule. A
-  placement or appearance change may resize it once, since that is a deliberate config action.
+- An overlay never resizes on hover or on content change. Only the user's resize handle changes its
+  size, and content reflows into whatever size was chosen. See decision 6 point 3.
 - `hide_from_capture` excludes overlay windows too, verified by a screen capture with an overlay
   placed.
 - The global opacity setting and its hover boost apply to an overlay that has no override.
@@ -296,9 +310,7 @@ Carried from the todo, plus what this design adds:
   readable as the broader rule, where a pomodoro tile in the strip is already enough to suppress
   pomodoro-overlay's own window. Both are one-line changes at the call site; the answer is a product
   call, not a technical one.
-- **Is 1x / 1.25x / 1.5x the right scale set**, or should overlays be freely resizable by drag?
-  Free resize conflicts with the fixed-size rule's spirit and needs per-widget reflow work, which is
-  why this design picked steps.
+- ~~Scale steps or free resize?~~ **Settled 2026-08-07: free resize.** See decision 6.
 
 ## Open risks
 
