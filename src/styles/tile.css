@@ -136,8 +136,9 @@
   display: block;
 }
 
-/* foreignObject icon: 30x30 dial has ~13px of clear centre inside the inner
-   ring, so this must undercut .tile .ph's 14px sizing. */
+/* foreignObject icon: content is scaled by the dial's own SVG viewBox
+   transform (conductor.ts's VIEWBOX/DIAL_SIZE_PX), so this font-size is
+   authored in viewBox units, not real CSS px - see conductor.ts::miniDial. */
 .dial-icon {
   width: 100%;
   height: 100%;
@@ -147,8 +148,8 @@
 }
 
 .dial-icon .ph {
-  font-size: 8px;
-  opacity: 0.85;
+  font-size: 15px;
+  opacity: 1;
 }
 
 .muted {

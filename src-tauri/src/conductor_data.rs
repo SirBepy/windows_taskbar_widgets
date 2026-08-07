@@ -10,7 +10,6 @@ struct Account {
     id: String,
     label: String,
     colour: String,
-    #[allow(dead_code)]
     icon: String,
 }
 
@@ -33,6 +32,7 @@ pub struct AccountUsage {
     pub id: String,
     pub label: String,
     pub colour: String,
+    pub icon: String,
     pub captured_at: String,
     pub five_hour_pct: f64,
     pub five_hour_resets_at: Option<String>,
@@ -86,24 +86,28 @@ pub fn get_conductor_usage() -> ConductorUsage {
     let mut out = Vec::new();
     if accounts.is_empty() {
         if let Some(snap) = latest_snapshot(&conn, None) {
-            out.push(to_usage("legacy", "Claude", "#d97757", snap));
+            out.push(to_usage("legacy", "Claude", "#d97757", "", snap));
         }
     } else {
         for a in &accounts {
             if let Some(snap) = latest_snapshot(&conn, Some(&a.id)) {
-                out.push(to_usage(&a.id, &a.label, &a.colour, snap));
+                out.push(to_usage(&a.id, &a.label, &a.colour, &a.icon, snap));
             }
         }
     }
     ConductorUsage { available: true, accounts: out }
 }
 
-fn to_usage(id: &str, label: &str, colour: &str, snap: UsageSnapshot) -> AccountUsage {
+// icon is a bare Phosphor slug (e.g. "briefcase") from conductor's own
+// per-account icon pool; "" for the legacy single-entry, since there's no
+// accounts.json entry to source one from - the TS side falls back to ph-user.
+fn to_usage(id: &str, label: &str, colour: &str, icon: &str, snap: UsageSnapshot) -> AccountUsage {
     let none_if_empty = |s: Option<String>| s.filter(|v| !v.is_empty());
     AccountUsage {
         id: id.to_string(),
         label: label.to_string(),
         colour: colour.to_string(),
+        icon: icon.to_string(),
         captured_at: snap.captured_at,
         five_hour_pct: snap.five_hour.utilization,
         five_hour_resets_at: none_if_empty(snap.five_hour.resets_at),

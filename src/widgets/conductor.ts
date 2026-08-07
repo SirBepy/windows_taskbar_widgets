@@ -8,6 +8,7 @@ interface AccountUsage {
   id: string;
   label: string;
   colour: string;
+  icon: string;
   captured_at: string;
   five_hour_pct: number;
   five_hour_resets_at: string | null;
@@ -34,8 +35,8 @@ interface LiveUsageSnapshot {
 
 const POLL_MS = 30_000;
 
-// Label/colour come from the last DB poll; a snapshot for an unknown account
-// (no poll yet, or a brand-new account not in that snapshot) is dropped.
+// Label/colour/icon come from the last DB poll; a snapshot for an unknown
+// account (no poll yet, or a brand-new account not in that snapshot) is dropped.
 function mergeLive(current: ConductorUsage | null, snap: LiveUsageSnapshot): ConductorUsage | null {
   if (!current) return current;
   const targetId = snap.account_id ?? LEGACY_ID;
@@ -64,14 +65,37 @@ function requestRefresh(e: Event) {
 const FIVE_HOUR_MS = 5 * 3_600_000;
 const SEVEN_DAY_MS = 7 * 86_400_000;
 
-// Same warn/hot hexes as .tile-stat's CSS classes, reused literally since this
-// is an inline SVG stroke and can't reference a CSS class.
-const HEAT_STROKE: Record<string, string> = { warn: "#f0b232", hot: "#f04747" };
+// Geometry ported 1:1 from claude_usage_in_taskbar's usage-dial.ts. 36px because
+// a default 48px taskbar minus #strip's 4px v-padding leaves 40px of tile.
+const DIAL_SIZE_PX = 36;
+const VIEWBOX = 44;
+const CENTER = 22;
+const OUTER_R = 19;
+const OUTER_W = 4.5;
+const INNER_R = 12;
+const INNER_W = 3;
 const TRACK_COLOR = "rgba(255, 255, 255, 0.13)";
-const PACE_COLOR = "rgba(148, 163, 184, 0.55)"; // slate: distinct from the white track and any warm heat/account colour
+const ICON_FALLBACK = "user";
 
-// null means "don't draw a pace arc" - not "assume 0" - covers missing resets_at,
-// an already-past reset, and any out-of-window fraction (bad/stale data).
+// Ported from formatters.ts's getPaceColor (band=10). The only ring palette:
+// account colour and heat thresholds no longer touch a stroke. Both args 0-100.
+function paceColor(cur: number, safe: number): string {
+  if (cur < safe - 10) return "#27ae60";
+  if (cur < safe) return "#f1c40f";
+  if (cur < safe + 10) return "#e67e22";
+  return "#e74c3c";
+}
+
+// formatters.ts's pctColor. Only used with no safe-pace anchor, so "pace
+// unknown" never renders as the pace palette's "at zero pace" green.
+function flatColor(pct: number): string {
+  if (pct >= 80) return "#e74c3c";
+  if (pct >= 50) return "#e67e22";
+  return "#27ae60";
+}
+
+// null means "no safe-pace anchor", never "assume 0" - the overlay's
+// computeSafePacePct clamps, losing the "unknown" vs "at 0%" distinction.
 function elapsedFraction(resetsAt: string | null, windowMs: number): number | null {
   const msLeft = msUntil(resetsAt);
   if (msLeft === null) return null;
@@ -79,40 +103,50 @@ function elapsedFraction(resetsAt: string | null, windowMs: number): number | nu
   return frac >= 0 && frac <= 1 ? frac : null;
 }
 
-// Mirrors conductor's own dual-ring dial: outer = 5h window, inner = 7d window.
-// Clicking re-triggers a live claude.ai poll (fire-and-forget).
+// Starts at 12 o'clock, clockwise. cap only on fills, never the base track.
+function seg(r: number, w: number, lenPct: number, stroke: string, cap: boolean, opacity = 1) {
+  const c = 2 * Math.PI * r;
+  const dash = `${(Math.max(0, Math.min(100, lenPct)) / 100) * c} ${c}`;
+  return svg`<circle cx="${CENTER}" cy="${CENTER}" r="${r}" fill="none" stroke="${stroke}"
+    stroke-width="${w}" stroke-dasharray="${dash}" opacity="${opacity}"
+    stroke-linecap="${cap ? "round" : "butt"}" transform="rotate(-90 ${CENTER} ${CENTER})" />`;
+}
+
+// Under pace ghosts the gap out to safe; over pace darkens back to it, so the
+// overshoot is the part that reads bright.
+function ringFill(r: number, w: number, cur: number, safe: number, color: string) {
+  if (cur === safe) return seg(r, w, cur, color, true);
+  if (cur < safe) return svg`${seg(r, w, safe, color, true, 0.3)}${seg(r, w, cur, color, true)}`;
+  const darker = `color-mix(in srgb, ${color} 52%, #08060c)`;
+  return svg`${seg(r, w, cur, color, true)}${seg(r, w, safe, darker, true)}`;
+}
+
+// safePct null collapses safe to cur, so pace-unknown is one solid arc in
+// flatColor rather than a ghosted pace-palette one.
+function ringSvg(r: number, w: number, pct: number, safePct: number | null) {
+  const cur = Math.max(0, Math.min(100, pct));
+  const safe = safePct !== null ? Math.max(0, Math.min(100, safePct)) : cur;
+  const color = safePct !== null ? paceColor(cur, safe) : flatColor(cur);
+  return svg`${seg(r, w, 100, TRACK_COLOR, false)}${ringFill(r, w, cur, safe, color)}`;
+}
+
+// Outer ring = 5h window, inner = 7d. a.colour tints the icon only: identity,
+// never pace. Click re-triggers a live claude.ai poll (fire-and-forget).
 function miniDial(a: AccountUsage) {
-  const ring = (r: number, w: number, pct: number, pace: number | null, opacity: number) => {
-    const c = 2 * Math.PI * r;
-    const usage = Math.min(1, Math.max(0, pct / 100));
-    const filled = usage * c;
-    const h = heat(pct);
-    const progressColor = h ? HEAT_STROKE[h] : pace !== null && usage > pace ? HEAT_STROKE.warn : a.colour;
-    return svg`
-      <circle cx="16" cy="16" r="${r}" fill="none" stroke="${TRACK_COLOR}" stroke-width="${w}" />
-      ${
-        pace === null
-          ? null
-          : svg`<circle cx="16" cy="16" r="${r}" fill="none" stroke="${PACE_COLOR}" stroke-width="${w}"
-              stroke-dasharray="${pace * c} ${c - pace * c}" stroke-linecap="round"
-              transform="rotate(-90 16 16)" />`
-      }
-      <circle cx="16" cy="16" r="${r}" fill="none" stroke="${progressColor}"
-        stroke-opacity="${opacity}" stroke-width="${w}"
-        stroke-dasharray="${filled} ${c - filled}"
-        stroke-linecap="round" transform="rotate(-90 16 16)" />
-    `;
-  };
-  const fiveHourPace = elapsedFraction(a.five_hour_resets_at, FIVE_HOUR_MS);
-  const sevenDayPace = elapsedFraction(a.seven_day_resets_at, SEVEN_DAY_MS);
-  const paceNote = (pace: number | null) => (pace === null ? "" : ` (pace ${(pace * 100).toFixed(0)}%)`);
+  const fiveHourFrac = elapsedFraction(a.five_hour_resets_at, FIVE_HOUR_MS);
+  const sevenDayFrac = elapsedFraction(a.seven_day_resets_at, SEVEN_DAY_MS);
+  const toSafePct = (f: number | null) => (f === null ? null : f * 100);
+  const paceNote = (f: number | null) => (f === null ? "" : ` (safe pace ${(f * 100).toFixed(0)}%)`);
+  const icon = a.icon || ICON_FALLBACK;
   return svg`
-    <svg class="dial" width="30" height="30" viewBox="0 0 32 32" @click=${requestRefresh}>
-      <title>${a.label}: 5h ${a.five_hour_pct.toFixed(0)}%${paceNote(fiveHourPace)} · 7d ${a.seven_day_pct.toFixed(0)}%${paceNote(sevenDayPace)}</title>
-      ${ring(13, 3.4, a.five_hour_pct, fiveHourPace, 0.95)}
-      ${ring(8, 2.6, a.seven_day_pct, sevenDayPace, 0.7)}
-      <foreignObject x="11" y="11" width="10" height="10">
-        <div xmlns="http://www.w3.org/1999/xhtml" class="dial-icon"><i class="ph ph-robot"></i></div>
+    <svg class="dial" width="${DIAL_SIZE_PX}" height="${DIAL_SIZE_PX}" viewBox="0 0 ${VIEWBOX} ${VIEWBOX}" @click=${requestRefresh}>
+      <title>${a.label}: 5h ${a.five_hour_pct.toFixed(0)}%${paceNote(fiveHourFrac)} · 7d ${a.seven_day_pct.toFixed(0)}%${paceNote(sevenDayFrac)}</title>
+      ${ringSvg(OUTER_R, OUTER_W, a.five_hour_pct, toSafePct(fiveHourFrac))}
+      ${ringSvg(INNER_R, INNER_W, a.seven_day_pct, toSafePct(sevenDayFrac))}
+      <foreignObject x="${CENTER - 9}" y="${CENTER - 9}" width="18" height="18">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="dial-icon" style="color:${a.colour}">
+          <i class="ph ph-${icon}"></i>
+        </div>
       </foreignObject>
     </svg>
   `;
@@ -163,7 +197,7 @@ function flyoutTemplate(u: ConductorUsage | null) {
   `;
 }
 
-// Base: 30s DB poll (source of truth for account label/colour). On top of
+// Base: 30s DB poll (source of truth for account label/colour/icon). On top of
 // that, "conductor-usage-live" WS pushes merge in and repaint immediately -
 // the poll interval stays as the fallback when the daemon bridge is down.
 function subscribe(onData: (u: ConductorUsage) => void): () => void {
