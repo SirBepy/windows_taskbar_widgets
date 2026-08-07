@@ -3,15 +3,12 @@ import { ref } from "lit-html/directives/ref.js";
 import { invoke } from "@tauri-apps/api/core";
 import { fieldRow } from "../../../vendor/tauri_kit/frontend/settings/fields";
 import type { CustomField, Field } from "../../../vendor/tauri_kit/frontend/settings/schema";
-import { ConfigField, Settings, setDragging, subscribeSettings, widgetConfig } from "../../shared/widget";
-import { isDividerId, makeDividerId } from "../../shared/divider";
+import { ConfigField, Settings, subscribeSettings, widgetConfig } from "../../shared/widget";
+import { isDividerId } from "../../shared/divider";
 import { allWidgetIds, allWidgets, widgetById } from "../../widgets/registry";
 import { fetchStatsOnce } from "../../widgets/system-shared";
 import { placeAt, removeId } from "./widget-strip-dnd";
-
-const NEW_DIVIDER = "new-divider";
-const DRAG_THRESHOLD_PX = 6;
-const SLIDE_MS = 190;
+import { isStripDragActive, NEW_DIVIDER, wireStripDrag } from "./widget-strip-drag";
 
 interface Mounted {
   el: HTMLElement;
@@ -77,15 +74,19 @@ function attach(node?: Element): void {
     palette: root.querySelector<HTMLElement>(".wsf-palette")!,
     config: root.querySelector<HTMLElement>(".wsf-config")!,
   };
-  refs.strip.addEventListener("pointerdown", onPointerDown);
-  refs.palette.addEventListener("pointerdown", onPointerDown);
+  wireStripDrag(refs.strip, refs.palette, {
+    onSelect: onStripSelect,
+    onDrop: onStripDrop,
+    onRemove: onStripRemove,
+    onCancel: syncAll,
+  });
   root.querySelector(".wsf-reset")!.addEventListener("click", resetLayout);
   // Warms system-shared's snapshot cache so tiles paint real numbers instead of
   // their "…" placeholder, which would also measure a too-narrow drop gap.
   void fetchStatsOnce();
   stopSettings = subscribeSettings((s) => {
     settings = s;
-    if (!drag) syncAll();
+    if (!isStripDragActive()) syncAll();
   });
 }
 
@@ -197,212 +198,31 @@ function resetLayout(): void {
   void save((s) => ({ ...s, enabled_widgets: allWidgetIds(), hidden_widgets: [], widget_config: {} }));
 }
 
-// ---------- drag ----------
+// ---------- drag callbacks ----------
 
-interface Drag {
-  id: string;
-  dropId: string;
-  source: HTMLElement;
-  fromStrip: boolean;
-  started: boolean;
-  ox: number;
-  oy: number;
-  dx: number;
-  dy: number;
-  w: number;
-  h: number;
-  clone?: HTMLElement;
-  cloneDispose?: () => void;
-  slot?: HTMLElement;
+function onStripSelect(id: string): void {
+  selectedId = id;
+  syncStrip();
+  syncConfig();
 }
 
-let drag: Drag | null = null;
-
-/** Animates every tile from where it sat before `mutate` to where it lands after,
- * so the row visibly slides apart around the drop slot instead of jumping. */
-function flip(mutate: () => void): void {
-  const els = [...refs!.strip.children] as HTMLElement[];
-  const before = els.map((el) => el.getBoundingClientRect().left);
-  mutate();
-  els.forEach((el, i) => {
-    const shift = before[i] - el.getBoundingClientRect().left;
-    if (!shift) return;
-    el.style.transition = "none";
-    el.style.transform = `translateX(${shift}px)`;
-  });
-  requestAnimationFrame(() => {
-    for (const el of els) {
-      el.style.transition = `transform ${SLIDE_MS}ms cubic-bezier(.2, .8, .3, 1)`;
-      el.style.transform = "";
-    }
-  });
+function onStripDrop(dropId: string, index: number): void {
+  if (!isDividerId(dropId)) selectedId = dropId;
+  void save((s) => ({
+    ...s,
+    enabled_widgets: placeAt(s.enabled_widgets, dropId, index),
+    hidden_widgets: removeId(s.hidden_widgets, dropId),
+  }));
 }
 
-/** Width a palette entry will occupy once it's a real tile - a chip is narrower,
- * so measuring the chip would open a gap that doesn't match what lands. */
-function measureTile(id: string): number {
-  const probe = document.createElement("div");
-  probe.className = "tile";
-  probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none";
-  refs!.strip.appendChild(probe);
-  const stop = widgetById(id)?.mountTile(probe);
-  const width = probe.getBoundingClientRect().width;
-  stop?.();
-  probe.remove();
-  return width;
-}
-
-function begin(): void {
-  const d = drag!;
-  const clone = document.createElement("div");
-  clone.className = "tile wsf-clone";
-  d.cloneDispose = widgetById(d.dropId)?.mountTile(clone);
-  const baseW = d.fromStrip ? d.w : measureTile(d.dropId);
-  clone.style.width = `${baseW}px`;
-  clone.style.height = `${d.fromStrip ? d.h : refs!.strip.getBoundingClientRect().height}px`;
-  document.body.appendChild(clone);
-  d.clone = clone;
-  if (!d.fromStrip) {
-    d.dx = baseW / 2;
-    d.dy = clone.getBoundingClientRect().height / 2;
-  }
-
-  // Read the painted rect, not baseW: the clone's scale(1.04) pick-up affordance
-  // makes it wider than its layout box, and a narrower gap reads as a mismatch.
-  d.slot = document.createElement("div");
-  d.slot.className = "wsf-slot";
-  d.slot.style.width = `${clone.getBoundingClientRect().width}px`;
-
-  if (d.fromStrip) {
-    flip(() => {
-      refs!.strip.insertBefore(d.slot!, d.source);
-      d.source.classList.add("wsf-lifted");
-    });
-  } else {
-    d.source.classList.add("wsf-lifted");
-  }
-  setDragging(true);
-}
-
-function hits(el: HTMLElement, e: PointerEvent, padX: number, padY: number): boolean {
-  const r = el.getBoundingClientRect();
-  return (
-    e.clientX >= r.left - padX &&
-    e.clientX <= r.right + padX &&
-    e.clientY >= r.top - padY &&
-    e.clientY <= r.bottom + padY
-  );
-}
-
-function moveSlot(x: number): void {
-  const d = drag!;
-  const tiles = ([...refs!.strip.children] as HTMLElement[]).filter(
-    (t) => t !== d.slot && !t.classList.contains("wsf-lifted"),
-  );
-  let target: HTMLElement | null = null;
-  for (const t of tiles) {
-    const r = t.getBoundingClientRect();
-    if (x < r.left + r.width / 2) {
-      target = t;
-      break;
-    }
-  }
-  if (d.slot!.parentElement && d.slot!.nextElementSibling === target) return;
-  if (!target && d.slot!.parentElement && !d.slot!.nextElementSibling) return;
-  flip(() => refs!.strip.insertBefore(d.slot!, target));
-}
-
-function onPointerDown(e: PointerEvent): void {
-  if (e.button !== 0 || !refs) return;
-  const el = (e.target as HTMLElement).closest<HTMLElement>("[data-widget]");
-  if (!el) return;
-  const id = el.dataset.widget!;
-  const r = el.getBoundingClientRect();
-  drag = {
-    id,
-    dropId: id === NEW_DIVIDER ? makeDividerId() : id,
-    source: el,
-    fromStrip: el.parentElement === refs.strip,
-    started: false,
-    ox: e.clientX,
-    oy: e.clientY,
-    dx: e.clientX - r.left,
-    dy: e.clientY - r.top,
-    w: r.width,
-    h: r.height,
-  };
-  window.addEventListener("pointermove", onPointerMove);
-  window.addEventListener("pointerup", onPointerUp, { once: true });
-}
-
-function onPointerMove(e: PointerEvent): void {
-  const d = drag;
-  if (!d || !refs) return;
-  if (!d.started) {
-    if (Math.hypot(e.clientX - d.ox, e.clientY - d.oy) < DRAG_THRESHOLD_PX) return;
-    d.started = true;
-    begin();
-  }
-  d.clone!.style.left = `${e.clientX - d.dx}px`;
-  d.clone!.style.top = `${e.clientY - d.dy}px`;
-
-  const overStrip = hits(refs.strip, e, 40, 24);
-  refs.strip.classList.toggle("wsf-drop", overStrip);
-  refs.palette.classList.toggle("wsf-drop", !overStrip && hits(refs.palette, e, 0, 20));
-  d.clone!.classList.toggle("wsf-removing", d.fromStrip && !overStrip);
-  if (overStrip) moveSlot(e.clientX);
-  else if (d.slot!.parentElement) flip(() => d.slot!.remove());
-}
-
-function onPointerUp(): void {
-  window.removeEventListener("pointermove", onPointerMove);
-  const d = drag;
-  drag = null;
-  if (!d) return;
-  setDragging(false);
-
-  if (!d.started) {
-    if (d.fromStrip) {
-      selectedId = d.id;
-      syncStrip();
-      syncConfig();
-    }
-    return;
-  }
-
-  refs?.strip.classList.remove("wsf-drop");
-  refs?.palette.classList.remove("wsf-drop");
-  d.cloneDispose?.();
-  d.clone?.remove();
-  d.source.classList.remove("wsf-lifted");
-
-  const landed = !!d.slot!.parentElement;
-  // Counted among the non-lifted children, which is exactly what placeAt expects.
-  const index = landed
-    ? ([...refs!.strip.children] as HTMLElement[])
-        .filter((t) => !t.classList.contains("wsf-lifted"))
-        .indexOf(d.slot!)
-    : -1;
-  d.slot!.remove();
-
-  if (landed) {
-    if (!isDividerId(d.dropId)) selectedId = d.dropId;
-    void save((s) => ({
-      ...s,
-      enabled_widgets: placeAt(s.enabled_widgets, d.dropId, index),
-      hidden_widgets: removeId(s.hidden_widgets, d.dropId),
-    }));
-  } else if (d.fromStrip) {
-    if (selectedId === d.id) selectedId = null;
-    // A divider's uuid id is single-use, so it's dropped rather than remembered.
-    void save((s) => ({
-      ...s,
-      enabled_widgets: removeId(s.enabled_widgets, d.id),
-      hidden_widgets: isDividerId(d.id) ? s.hidden_widgets : [...removeId(s.hidden_widgets, d.id), d.id],
-    }));
-  } else {
-    syncAll();
-  }
+function onStripRemove(id: string): void {
+  if (selectedId === id) selectedId = null;
+  // A divider's uuid id is single-use, so it's dropped rather than remembered.
+  void save((s) => ({
+    ...s,
+    enabled_widgets: removeId(s.enabled_widgets, id),
+    hidden_widgets: isDividerId(id) ? s.hidden_widgets : [...removeId(s.hidden_widgets, id), id],
+  }));
 }
 
 // ---------- public ----------
