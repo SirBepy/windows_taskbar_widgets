@@ -25,7 +25,7 @@ fn primary_taskbar_rect() -> Option<(i32, i32, i32, i32)> {
 #[cfg(target_os = "windows")]
 pub fn taskbar_rect(app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
     match selected_taskbar(app) {
-        Some(t) if !t.is_primary => Some(t.taskbar_rect),
+        Some(t) if !t.is_primary => Some(docked_secondary_rect(t.taskbar_rect, t.monitor_rect)),
         _ => primary_taskbar_rect(),
     }
 }
@@ -52,6 +52,46 @@ pub fn selected_monitor_rect(_app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
 // "is it on screen" has to be a real overlap test, not a nonzero one.
 #[cfg(target_os = "windows")]
 const SLIVER_PX: i32 = 8;
+
+/// True when `rc` overlaps `monitor` by less than SLIVER_PX on either axis - the
+/// slid-off-screen state of an auto-hidden taskbar. Shared by `taskbar_hidden`
+/// and `docked_secondary_rect` so there is one definition of "hidden".
+#[cfg(target_os = "windows")]
+fn rect_mostly_off_monitor(rc: (i32, i32, i32, i32), monitor: (i32, i32, i32, i32)) -> bool {
+    let overlap_h = rc.3.min(monitor.3) - rc.1.max(monitor.1);
+    let overlap_w = rc.2.min(monitor.2) - rc.0.max(monitor.0);
+    overlap_h.min(overlap_w) < SLIVER_PX
+}
+
+/// Reconstructs a secondary taskbar's docked rect when auto-hide has slid it off
+/// screen. `GetWindowRect` keeps the window's full thickness while hidden, only its
+/// position moves, so this snaps that thickness flush to whichever monitor edge the
+/// rect's centre says it's docked to (wide+short -> top/bottom, tall+narrow -> left/right).
+#[cfg(target_os = "windows")]
+fn docked_secondary_rect(
+    taskbar_rect: (i32, i32, i32, i32),
+    monitor_rect: (i32, i32, i32, i32),
+) -> (i32, i32, i32, i32) {
+    if !rect_mostly_off_monitor(taskbar_rect, monitor_rect) {
+        return taskbar_rect;
+    }
+    let (left, top, right, bottom) = taskbar_rect;
+    let (m_left, m_top, m_right, m_bottom) = monitor_rect;
+    let width = right - left;
+    let height = bottom - top;
+
+    if width >= height {
+        if top + bottom < m_top + m_bottom {
+            (m_left, m_top, m_left + width, m_top + height)
+        } else {
+            (m_left, m_bottom - height, m_left + width, m_bottom)
+        }
+    } else if left + right < m_left + m_right {
+        (m_left, m_top, m_left + width, m_top + height)
+    } else {
+        (m_right - width, m_top, m_right, m_top + height)
+    }
+}
 
 /// Shared by taskbar.rs and autohide.rs: a window's rect plus its monitor's rect.
 /// `monitor_flags` is a MonitorFromWindow dwFlags value; callers differ on whether
@@ -114,9 +154,10 @@ pub fn taskbar_hidden(app: &AppHandle) -> bool {
         else {
             return false;
         };
-        let overlap_h = rc.bottom.min(rc_monitor.bottom) - rc.top.max(rc_monitor.top);
-        let overlap_w = rc.right.min(rc_monitor.right) - rc.left.max(rc_monitor.left);
-        overlap_h.min(overlap_w) < SLIVER_PX
+        rect_mostly_off_monitor(
+            (rc.left, rc.top, rc.right, rc.bottom),
+            (rc_monitor.left, rc_monitor.top, rc_monitor.right, rc_monitor.bottom),
+        )
     }
 }
 
@@ -152,4 +193,59 @@ pub fn position_strip(app: &AppHandle, strip_css_width: f64) -> tauri::Result<()
         win.set_position(PhysicalPosition::new(x, y))?;
     }
     Ok(())
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    const MONITOR: (i32, i32, i32, i32) = (0, 0, 2560, 1440);
+
+    #[test]
+    fn bottom_docked_rect_is_returned_unchanged() {
+        let docked = (0, 1400, 2560, 1440);
+        assert_eq!(docked_secondary_rect(docked, MONITOR), docked);
+    }
+
+    #[test]
+    fn bottom_hidden_rect_snaps_flush_to_bottom_edge() {
+        let slid = (0, 1438, 2560, 1478);
+        assert_eq!(docked_secondary_rect(slid, MONITOR), (0, 1400, 2560, 1440));
+    }
+
+    #[test]
+    fn top_docked_rect_is_returned_unchanged() {
+        let docked = (0, 0, 2560, 40);
+        assert_eq!(docked_secondary_rect(docked, MONITOR), docked);
+    }
+
+    #[test]
+    fn top_hidden_rect_snaps_flush_to_top_edge() {
+        let slid = (0, -38, 2560, 2);
+        assert_eq!(docked_secondary_rect(slid, MONITOR), (0, 0, 2560, 40));
+    }
+
+    #[test]
+    fn left_docked_rect_is_returned_unchanged() {
+        let docked = (0, 0, 40, 1440);
+        assert_eq!(docked_secondary_rect(docked, MONITOR), docked);
+    }
+
+    #[test]
+    fn left_hidden_rect_snaps_flush_to_left_edge() {
+        let slid = (-38, 0, 2, 1440);
+        assert_eq!(docked_secondary_rect(slid, MONITOR), (0, 0, 40, 1440));
+    }
+
+    #[test]
+    fn right_docked_rect_is_returned_unchanged() {
+        let docked = (2520, 0, 2560, 1440);
+        assert_eq!(docked_secondary_rect(docked, MONITOR), docked);
+    }
+
+    #[test]
+    fn right_hidden_rect_snaps_flush_to_right_edge() {
+        let slid = (2558, 0, 2598, 1440);
+        assert_eq!(docked_secondary_rect(slid, MONITOR), (2520, 0, 2560, 1440));
+    }
 }
