@@ -14,10 +14,12 @@ since that is a one-time choice, not a live update.
 Joe: "we gotta setup a rule for any widgets going forward... they shouldnt be changing
 sizes... thats too obtrusive."
 
-## Sanctioned exception
+## Sanctioned exceptions
 
-`.tile.dragging`'s `transform: scale(1.04)` in `src/styles/base.css` is a drag pick-up
-affordance, not a content-driven resize. It stays.
+`transform: scale(1.04)` is a drag pick-up affordance, not a content-driven resize, at both of
+its sites: `.tile.dragging` in `src/styles/tile.css` (the live strip) and `.wsf-clone` in
+`src/styles/settings.css` (the settings-preview drag clone). Both stay. Any new drag pick-up
+affordance must be added here too.
 
 ## Reserving width for numbers
 
