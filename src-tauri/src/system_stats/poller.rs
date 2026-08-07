@@ -71,7 +71,7 @@ pub fn spawn_poller(app: AppHandle) {
             sys.refresh_cpu_usage();
             sys.refresh_memory();
 
-            if cycle % DISK_REFRESH_EVERY == 0 {
+            if cycle.is_multiple_of(DISK_REFRESH_EVERY) {
                 let disks = Disks::new_with_refreshed_list();
                 disks_cache = disks
                     .list()
