@@ -68,12 +68,10 @@ export function subscribeStats(onStats: (s: SystemStats) => void): () => void {
   let disposed = false;
   let unlisten: (() => void) | null = null;
   if (lastStats) onStats(lastStats);
-  else {
-    invoke<SystemStats>("get_system_stats").then((s) => {
-      if (s.mem_total_bytes > 0) lastStats = s;
-      if (!disposed && s.mem_total_bytes > 0) onStats(s);
+  else
+    fetchStatsOnce().then((s) => {
+      if (s && !disposed) onStats(s);
     });
-  }
   listen<SystemStats>("system-stats", (e) => {
     lastStats = e.payload;
     onStats(e.payload);
