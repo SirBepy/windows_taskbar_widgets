@@ -91,7 +91,8 @@ pub fn spawn_poller(app: AppHandle) {
             let gpu: Option<GpuStats> = None;
 
             #[cfg(target_os = "windows")]
-            let cpu_temp_c = wmi_con.as_ref().and_then(read_cpu_temp);
+            let cpu_temp_c = super::afterburner::read_cpu_temp()
+                .or_else(|| wmi_con.as_ref().and_then(read_cpu_temp));
             #[cfg(not(target_os = "windows"))]
             let cpu_temp_c: Option<f32> = None;
 
@@ -151,8 +152,8 @@ fn read_gpu(nvml: &nvml_wrapper::Nvml) -> Option<GpuStats> {
     })
 }
 
-// MSAcpi thermal zones report tenths of Kelvin; many consumer boards don't expose them
-// at all (query errors or returns nothing), so this silently degrades to None.
+// Fallback when Afterburner isn't running. MSAcpi thermal zones report tenths of
+// Kelvin; many consumer boards don't expose them at all, so this silently degrades to None.
 #[cfg(target_os = "windows")]
 fn read_cpu_temp(con: &wmi::WMIConnection) -> Option<f32> {
     use serde::Deserialize;

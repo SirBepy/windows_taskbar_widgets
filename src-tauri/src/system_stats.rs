@@ -1,3 +1,4 @@
+mod afterburner;
 mod poller;
 mod processes;
 
