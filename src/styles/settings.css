@@ -221,6 +221,17 @@ body,
   color: var(--kit-text-dim);
 }
 
+.wsf-opacity-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wsf-inherit-label {
+  font-size: 0.78rem;
+  color: var(--kit-text-dim);
+}
+
 .wsf-reset {
   margin-top: 14px;
   display: inline-flex;

@@ -93,6 +93,9 @@ export const pomodoroWidget: TaskbarWidget = {
   id: "pomodoro",
   name: "Pomodoro",
   icon: "ph-timer",
+  // No flyout to inherit from, so overlay placement needs its own floor. The tile
+  // renderer is what draws here, per overlayRenderer's fallback chain.
+  overlay: { widthCss: 150, heightCss: 44 },
   menuItems: () => [{ id: "open-app", label: "Open Pomodoro Overlay" }],
   onMenuAction: (id) => {
     if (id === "open-app") invoke("focus_or_launch_app", { app: "pomodoro" }).catch(() => {});
