@@ -79,43 +79,18 @@ pub fn enumerate_taskbars() -> Vec<DetectedTaskbar> {
     Vec::new()
 }
 
-/// GetMonitorInfoW's EX variant is what exposes szDevice; plain MONITORINFO can't.
 #[cfg(target_os = "windows")]
 fn detect_taskbar(hwnd: windows_sys::Win32::Foundation::HWND) -> Option<DetectedTaskbar> {
-    use windows_sys::Win32::Foundation::RECT;
-    use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
-    };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, MONITORINFOF_PRIMARY};
+    use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTONEAREST;
 
-    unsafe {
-        let mut rc: RECT = std::mem::zeroed();
-        if GetWindowRect(hwnd, &mut rc) == 0 {
-            return None;
-        }
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        if monitor.is_null() {
-            return None;
-        }
-        let mut mi: MONITORINFOEXW = std::mem::zeroed();
-        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
-        if GetMonitorInfoW(monitor, &mut mi as *mut _ as *mut _) == 0 {
-            return None;
-        }
-        let len = mi.szDevice.iter().position(|&c| c == 0).unwrap_or(mi.szDevice.len());
-        Some(DetectedTaskbar {
-            hwnd: hwnd as isize,
-            device_name: String::from_utf16_lossy(&mi.szDevice[..len]),
-            is_primary: mi.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
-            taskbar_rect: (rc.left, rc.top, rc.right, rc.bottom),
-            monitor_rect: (
-                mi.monitorInfo.rcMonitor.left,
-                mi.monitorInfo.rcMonitor.top,
-                mi.monitorInfo.rcMonitor.right,
-                mi.monitorInfo.rcMonitor.bottom,
-            ),
-        })
-    }
+    let wm = super::rect::window_and_monitor_rect(hwnd, MONITOR_DEFAULTTONEAREST)?;
+    Some(DetectedTaskbar {
+        hwnd: hwnd as isize,
+        device_name: wm.device_name,
+        is_primary: wm.is_primary,
+        taskbar_rect: (wm.window.left, wm.window.top, wm.window.right, wm.window.bottom),
+        monitor_rect: (wm.monitor.left, wm.monitor.top, wm.monitor.right, wm.monitor.bottom),
+    })
 }
 
 /// Settings picker option: one row per detected taskbar, labeled with its monitor's

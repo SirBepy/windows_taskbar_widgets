@@ -93,21 +93,29 @@ fn docked_secondary_rect(
     }
 }
 
-/// Shared by taskbar.rs and autohide.rs: a window's rect plus its monitor's rect.
-/// `monitor_flags` is a MonitorFromWindow dwFlags value; callers differ on whether
-/// "no monitor found" should be treated as a hard failure (MONITOR_DEFAULTTONULL)
-/// or fall back to the nearest one (MONITOR_DEFAULTTONEAREST).
+/// Window rect, its monitor's rect, and (Windows only) that monitor's device name
+/// and primary flag - one MONITORINFOEXW call gives all four, so every caller gets
+/// the name even if only `detect_taskbar` uses it.
+#[cfg(target_os = "windows")]
+pub struct WindowMonitorRect {
+    pub window: windows_sys::Win32::Foundation::RECT,
+    pub monitor: windows_sys::Win32::Foundation::RECT,
+    pub device_name: String,
+    pub is_primary: bool,
+}
+
+/// Shared by taskbar.rs, monitors.rs and autohide.rs: a window's rect plus its
+/// monitor's rect. `monitor_flags` is a MonitorFromWindow dwFlags value; callers
+/// differ on whether "no monitor found" should be treated as a hard failure
+/// (MONITOR_DEFAULTTONULL) or fall back to the nearest one (MONITOR_DEFAULTTONEAREST).
 #[cfg(target_os = "windows")]
 pub fn window_and_monitor_rect(
     hwnd: windows_sys::Win32::Foundation::HWND,
     monitor_flags: u32,
-) -> Option<(
-    windows_sys::Win32::Foundation::RECT,
-    windows_sys::Win32::Foundation::RECT,
-)> {
+) -> Option<WindowMonitorRect> {
     use windows_sys::Win32::Foundation::RECT;
-    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO};
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFOEXW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, MONITORINFOF_PRIMARY};
 
     unsafe {
         let mut rc: RECT = std::mem::zeroed();
@@ -118,12 +126,18 @@ pub fn window_and_monitor_rect(
         if monitor.is_null() {
             return None;
         }
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(monitor, &mut mi) == 0 {
+        let mut mi: MONITORINFOEXW = std::mem::zeroed();
+        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(monitor, &mut mi as *mut _ as *mut _) == 0 {
             return None;
         }
-        Some((rc, mi.rcMonitor))
+        let len = mi.szDevice.iter().position(|&c| c == 0).unwrap_or(mi.szDevice.len());
+        Some(WindowMonitorRect {
+            window: rc,
+            monitor: mi.monitorInfo.rcMonitor,
+            device_name: String::from_utf16_lossy(&mi.szDevice[..len]),
+            is_primary: mi.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+        })
     }
 }
 
@@ -150,13 +164,12 @@ pub fn taskbar_hidden(app: &AppHandle) -> bool {
         if hwnd.is_null() || IsWindowVisible(hwnd) == 0 {
             return true;
         }
-        let Some((rc, rc_monitor)) = window_and_monitor_rect(hwnd, MONITOR_DEFAULTTONEAREST)
-        else {
+        let Some(wm) = window_and_monitor_rect(hwnd, MONITOR_DEFAULTTONEAREST) else {
             return false;
         };
         rect_mostly_off_monitor(
-            (rc.left, rc.top, rc.right, rc.bottom),
-            (rc_monitor.left, rc_monitor.top, rc_monitor.right, rc_monitor.bottom),
+            (wm.window.left, wm.window.top, wm.window.right, wm.window.bottom),
+            (wm.monitor.left, wm.monitor.top, wm.monitor.right, wm.monitor.bottom),
         )
     }
 }

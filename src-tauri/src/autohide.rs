@@ -211,15 +211,13 @@ fn foreground_fullscreen() -> bool {
             return false;
         }
 
-        let Some((wnd, rc_monitor)) =
-            crate::taskbar::window_and_monitor_rect(fg, MONITOR_DEFAULTTONULL)
-        else {
+        let Some(wm) = crate::taskbar::window_and_monitor_rect(fg, MONITOR_DEFAULTTONULL) else {
             return false;
         };
-        wnd.left <= rc_monitor.left
-            && wnd.top <= rc_monitor.top
-            && wnd.right >= rc_monitor.right
-            && wnd.bottom >= rc_monitor.bottom
+        wm.window.left <= wm.monitor.left
+            && wm.window.top <= wm.monitor.top
+            && wm.window.right >= wm.monitor.right
+            && wm.window.bottom >= wm.monitor.bottom
     }
 }
 
