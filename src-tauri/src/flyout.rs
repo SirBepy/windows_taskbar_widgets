@@ -75,7 +75,12 @@ pub fn open_flyout(
         .map(|(_, top, _, _)| top)
         .unwrap_or(strip_pos.y);
     let mut x = anchor_px - w as i32 / 2;
-    if let Ok(Some(monitor)) = fly.primary_monitor() {
+    // Clamp to the display the strip is hosted on, not the primary one - with
+    // `taskbar_monitor` set to a secondary taskbar those differ, and primary_monitor
+    // would yank the flyout back onto the wrong screen.
+    if let Some((left, _, right, _)) = crate::taskbar::selected_monitor_rect(&app) {
+        x = x.clamp(left, right - w as i32);
+    } else if let Ok(Some(monitor)) = fly.primary_monitor() {
         let mx = monitor.position().x;
         let mw = monitor.size().width as i32;
         x = x.clamp(mx, mx + mw - w as i32);

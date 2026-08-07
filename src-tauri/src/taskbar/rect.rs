@@ -35,6 +35,19 @@ pub fn taskbar_rect(_app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
     None
 }
 
+/// Monitor rect of the chosen taskbar's display, for callers that clamp to the screen
+/// the strip actually lives on. None means "couldn't detect", so callers keep their
+/// own primary-monitor fallback rather than clamping to something wrong.
+#[cfg(target_os = "windows")]
+pub fn selected_monitor_rect(app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
+    selected_taskbar(app).map(|t| t.monitor_rect)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn selected_monitor_rect(_app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
+    None
+}
+
 // An auto-hide taskbar slid off screen still leaves a ~2px sliver behind, so
 // "is it on screen" has to be a real overlap test, not a nonzero one.
 #[cfg(target_os = "windows")]
