@@ -4,6 +4,7 @@ mod bridge_conductor;
 mod bridge_pomodoro;
 mod conductor_data;
 mod flyout;
+mod overlay;
 mod settings;
 mod system_stats;
 mod taskbar;
@@ -36,6 +37,7 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     // Broadcast (not emit_to "strip"): the flyout window also renders widget_config
     // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
     let _ = app.emit("widgets-changed", ());
+    overlay::reconcile(&app);
     Ok(())
 }
 
@@ -75,9 +77,11 @@ fn log_js(level: String, msg: String) {
 
 // The settings window is excluded on purpose: it's not part of the always-visible
 // surface, and excluding it would hide settings from the user's own screenshots.
+// Enumerated, not a fixed list: overlay windows are created at runtime and would
+// otherwise leak into a capture with hide_from_capture on.
 fn apply_capture_exclusion(app: &AppHandle, excluded: bool) {
-    for label in ["strip", "flyout"] {
-        if let Some(w) = app.get_webview_window(label) {
+    for (label, w) in app.webview_windows() {
+        if label == "strip" || label == "flyout" || label.starts_with(overlay::LABEL_PREFIX) {
             let _ = tauri_kit_window::exclude_from_capture(&w, excluded);
         }
     }
@@ -144,6 +148,7 @@ pub fn run() {
         .manage(SettingsState(Mutex::new(settings)))
         .manage(system_stats::StatsState(Mutex::new(Default::default())))
         .manage(bridge_pomodoro::new_state())
+        .manage(overlay::new_state())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_kit_updater::plugin())
         // Backs the About page's "Relaunch now" button after an update installs.
@@ -185,6 +190,7 @@ pub fn run() {
             if let Some(win) = handle.get_webview_window("strip") {
                 let _ = win.show();
             }
+            overlay::reconcile(&handle);
             system_stats::spawn_poller(handle.clone());
             autohide::spawn_poller(handle.clone());
             bridge_conductor::spawn(handle.clone());
@@ -219,6 +225,9 @@ pub fn run() {
             flyout::open_flyout,
             flyout::close_flyout,
             flyout::get_current_flyout_widget,
+            overlay::overlay_widget_id,
+            overlay::save_overlay_geometry,
+            overlay::monitor_at_point,
             system_stats::get_system_stats,
             system_stats::get_top_processes,
             conductor_data::get_conductor_usage,

@@ -33,6 +33,7 @@ export default defineConfig({
         main: resolve(import.meta.dirname, "src/index.html"),
         flyout: resolve(import.meta.dirname, "src/flyout.html"),
         settings: resolve(import.meta.dirname, "src/settings.html"),
+        overlay: resolve(import.meta.dirname, "src/overlay.html"),
       },
     },
   },

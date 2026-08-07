@@ -56,6 +56,52 @@ body {
   opacity: 1;
 }
 
+/* ---------- floating overlay ---------- */
+
+#overlay {
+  height: 100%;
+  /* Same opaque-background reason as #flyout above. */
+  background: rgb(30, 30, 32);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.overlay-content {
+  height: 100%;
+  opacity: var(--widget-opacity, 1);
+  transition: opacity 120ms ease;
+}
+
+#overlay:hover .overlay-content {
+  opacity: 1;
+}
+
+/* Corner grip for free resize; the rest of the background is the drag handle. */
+#overlay-resize {
+  position: fixed;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  background: linear-gradient(
+    135deg,
+    transparent 0 55%,
+    rgba(255, 255, 255, 0.45) 55% 65%,
+    transparent 65% 75%,
+    rgba(255, 255, 255, 0.45) 75% 85%,
+    transparent 85%
+  );
+}
+
+body:hover #overlay-resize {
+  opacity: 1;
+}
+
 .fly-title {
   font-size: 13px;
   font-weight: 600;

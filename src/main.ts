@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { runAutoUpdateCheck } from "../vendor/tauri_kit/frontend/updater/auto-check";
 import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { applyOpacity, isDragging, Settings, TaskbarWidget } from "./shared/widget";
+import { applyOpacity, isDragging, isOverlayPlaced, Settings, TaskbarWidget } from "./shared/widget";
 import { wireDragReorder } from "./shared/drag-reorder";
 
 reportErrors("strip");
@@ -85,11 +85,14 @@ function wireDrag(tile: HTMLElement) {
   });
 }
 
-function renderTiles(ids: string[]) {
+// A widget placed as a floating overlay gets its own window instead of a tile, so
+// it is dropped here rather than filtered out of enabled_widgets (which would lose
+// its position in the strip if the user moves it back).
+function renderTiles(ids: string[], settings: Settings | null) {
   tileCleanups.forEach((stop) => stop());
   tileCleanups = [];
   row.replaceChildren();
-  for (const widget of widgetsFor(ids)) {
+  for (const widget of widgetsFor(ids.filter((id) => !isOverlayPlaced(settings, id)))) {
     const tile = document.createElement("div");
     tile.className = "tile";
     tile.dataset.widget = widget.id;
@@ -115,13 +118,13 @@ async function main() {
   row = document.getElementById("strip")!;
 
   applyOpacity(settings);
-  renderTiles(enabled);
+  renderTiles(enabled, settings);
   const forceReport = reportStripWidth(row);
 
   listen("widgets-changed", async () => {
     const s = await invoke<Settings>("get_settings").catch(() => null);
     applyOpacity(s);
-    if (s) renderTiles(s.enabled_widgets);
+    if (s) renderTiles(s.enabled_widgets, s);
     forceReport();
   });
   listen<{ widget_id: string; item_id: string }>("tile-menu-action", (e) => {
