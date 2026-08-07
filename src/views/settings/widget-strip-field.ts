@@ -5,6 +5,7 @@ import { fieldRow } from "../../../vendor/tauri_kit/frontend/settings/fields";
 import type { CustomField, Field } from "../../../vendor/tauri_kit/frontend/settings/schema";
 import { ConfigField, Settings, subscribeSettings, widgetConfig } from "../../shared/widget";
 import { isDividerId } from "../../shared/divider";
+import { dividerWidget } from "../../widgets/divider";
 import { allWidgetIds, allWidgets, widgetById } from "../../widgets/registry";
 import { fetchStatsOnce } from "../../widgets/system-shared";
 import { placeAt, removeId } from "./widget-strip-dnd";
@@ -144,9 +145,10 @@ function chip(id: string, name: string, icon?: string): HTMLElement {
 function syncPalette(): void {
   const order = settings?.enabled_widgets ?? [];
   const off = allWidgets().filter((w) => !order.includes(w.id));
+  const divider = dividerWidget(NEW_DIVIDER);
   refs!.palette.replaceChildren(
     ...off.map((w) => chip(w.id, w.name, w.icon)),
-    chip(NEW_DIVIDER, "Divider", "ph-minus"),
+    chip(NEW_DIVIDER, divider.name, divider.icon),
   );
 }
 
