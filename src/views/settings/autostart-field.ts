@@ -2,24 +2,16 @@ import { html, type TemplateResult } from "lit-html";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import type { CustomField } from "../../../vendor/tauri_kit/frontend/settings/schema";
+import { lazyIpcField } from "./lazy-ipc-field";
 
 // Registry is the source of truth (Task Manager's Startup tab can remove the
 // entry), so this never calls the kit's onChange/setField - it would fold into
 // settings.json via save_settings. get_autostart/set_autostart only, repainted
 // via "settings-reset" (the kit's only public re-render hook for a custom field).
 let autostart = false;
-let fetchStarted = false;
-
-function ensureLoaded(): void {
-  if (fetchStarted) return;
-  fetchStarted = true;
-  invoke<boolean>("get_autostart")
-    .then((v) => {
-      autostart = v;
-      void emit("settings-reset");
-    })
-    .catch(() => {});
-}
+const ensureLoaded = lazyIpcField<boolean>("get_autostart", (v) => {
+  autostart = v;
+});
 
 async function toggle(on: boolean): Promise<void> {
   await invoke("set_autostart", { enabled: on }).catch(() => {});

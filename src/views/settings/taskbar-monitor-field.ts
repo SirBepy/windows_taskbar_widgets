@@ -1,7 +1,6 @@
 import { html, type TemplateResult } from "lit-html";
-import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
 import type { CustomField } from "../../../vendor/tauri_kit/frontend/settings/schema";
+import { lazyIpcField } from "./lazy-ipc-field";
 
 interface TaskbarMonitorOption {
   device_name: string;
@@ -13,18 +12,9 @@ interface TaskbarMonitorOption {
 // Not part of the Settings struct, so re-render is driven by "settings-reset"
 // (same trick as autostartField) rather than the kit's normal hydration.
 let options: TaskbarMonitorOption[] = [];
-let fetchStarted = false;
-
-function ensureLoaded(): void {
-  if (fetchStarted) return;
-  fetchStarted = true;
-  invoke<TaskbarMonitorOption[]>("list_taskbar_monitors")
-    .then((list) => {
-      options = list;
-      void emit("settings-reset");
-    })
-    .catch(() => {});
-}
+const ensureLoaded = lazyIpcField<TaskbarMonitorOption[]>("list_taskbar_monitors", (list) => {
+  options = list;
+});
 
 function primaryLabel(): string {
   const primary = options.find((o) => o.is_primary);
