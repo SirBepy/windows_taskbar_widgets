@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { html, render, svg } from "lit-html";
-import { fmtCountdown, isDragging, TaskbarWidget } from "../shared/widget";
+import { fmtCountdown, isDragging, msUntil, TaskbarWidget } from "../shared/widget";
 import { heat } from "./system-shared";
 
 interface AccountUsage {
@@ -73,9 +73,8 @@ const PACE_COLOR = "rgba(148, 163, 184, 0.55)"; // slate: distinct from the whit
 // null means "don't draw a pace arc" - not "assume 0" - covers missing resets_at,
 // an already-past reset, and any out-of-window fraction (bad/stale data).
 function elapsedFraction(resetsAt: string | null, windowMs: number): number | null {
-  if (!resetsAt) return null;
-  const msLeft = new Date(resetsAt).getTime() - Date.now();
-  if (!Number.isFinite(msLeft) || msLeft <= 0) return null;
+  const msLeft = msUntil(resetsAt);
+  if (msLeft === null) return null;
   const frac = 1 - msLeft / windowMs;
   return frac >= 0 && frac <= 1 ? frac : null;
 }

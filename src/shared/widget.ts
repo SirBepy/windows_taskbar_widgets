@@ -92,11 +92,17 @@ export function setDragging(v: boolean): void {
   dragging = v;
 }
 
+/** Ms remaining until an RFC3339 instant; null when missing, unparseable, or past. */
+export function msUntil(resetsAt: string | null | undefined): number | null {
+  if (!resetsAt) return null;
+  const ms = new Date(resetsAt).getTime() - Date.now();
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
 /** "2h 14m" until an RFC3339 instant; empty when past or missing. */
 export function fmtCountdown(resetsAt: string | null | undefined): string {
-  if (!resetsAt) return "";
-  const ms = new Date(resetsAt).getTime() - Date.now();
-  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const ms = msUntil(resetsAt);
+  if (ms === null) return "";
   const totalMin = Math.ceil(ms / 60_000);
   const d = Math.floor(totalMin / 1440);
   const h = Math.floor((totalMin % 1440) / 60);
