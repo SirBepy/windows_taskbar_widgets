@@ -317,8 +317,11 @@ the approach as a whole.
 
 ## Open risks
 
-- **`WebviewWindowBuilder` at runtime is unexercised here.** All current windows are config
-  declared. Transparency, `alwaysOnTop` and hit-testing on runtime-built windows should be spiked
-  before step 2 is estimated.
+- ~~`WebviewWindowBuilder` at runtime is unexercised here.~~ **Retired 2026-08-07 by a live run.**
+  Runtime-built windows, transparency and always-on-top all work. The spike found one real trap:
+  `src-tauri/capabilities/default.json` lists window labels explicitly, and a runtime window not
+  matching that list is denied `event.listen`, `start_dragging` and `start_resize_dragging` with no
+  visible failure beyond a JS rejection. The fix is the `overlay-*` glob in that list. Any future
+  runtime-created window has the same trap.
 - **N webviews is N WebView2 processes.** Six overlays is a real memory cost. Worth measuring at
   step 2, before the placement UI invites users to place everything.

@@ -21,6 +21,12 @@ its sites: `.tile.dragging` in `src/styles/tile.css` (the live strip) and `.wsf-
 `src/styles/settings.css` (the settings-preview drag clone). Both stay. Any new drag pick-up
 affordance must be added here too.
 
+**A floating overlay's resize grip** (`#overlay-resize`, `src/styles/base.css`) is a continuous,
+deliberate user action, so it is neither a live change nor a one-time config toggle. Chosen by Joe
+on 2026-08-07 over fixed scale steps. The invariant the rule actually protects still holds in full:
+content never changes an overlay's size, only the user's grip does, and the widget's declared
+`overlay`/`flyout` dims are enforced natively as the minimum it can be shrunk to.
+
 ## Reserving width for numbers
 
 `min-width: 3ch` alone does NOT hold a number's width. `ch` is the width of the "0" glyph, so it
@@ -33,4 +39,5 @@ never by eye.
 ## Where sizes live
 
 Flyout dims are declared per widget in the `flyout` field of the `TaskbarWidget` contract,
-`src/shared/widget.ts`.
+`src/shared/widget.ts`. Overlay dims live in the sibling `overlay` field; `overlayDims()` resolves
+`overlay ?? flyout`, and a widget declaring neither cannot be placed as a floating overlay.
