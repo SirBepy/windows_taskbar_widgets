@@ -72,12 +72,15 @@ pub fn resolve_path(identifier: &str) -> std::io::Result<PathBuf> {
 
 const STAT_WIDGET_IDS: [&str; 4] = ["cpu", "ram", "gpu", "disk"];
 
+// Mirrors DIVIDER_PREFIX in src/shared/divider.ts; both sides must agree exactly.
+pub const DIVIDER_PREFIX: &str = "divider:";
+
 // Matches the pre-0c4e816 `.tile-stat` border-right: a divider between each adjacent
 // pair of stat tiles, never trailing (the old `:not(:has(~ .tile .tile-stat))` rule
 // cleared it from the last one). No-ops if a divider is already present anywhere,
 // so a partially-migrated or hand-edited list is left alone.
 fn migrate_dividers(enabled_widgets: &mut Vec<String>) {
-    if enabled_widgets.iter().any(|id| id.starts_with("divider:")) {
+    if enabled_widgets.iter().any(|id| id.starts_with(DIVIDER_PREFIX)) {
         return;
     }
     let mut out = Vec::with_capacity(enabled_widgets.len());
@@ -87,7 +90,7 @@ fn migrate_dividers(enabled_widgets: &mut Vec<String>) {
             .get(i + 1)
             .is_some_and(|n| STAT_WIDGET_IDS.contains(&n.as_str()));
         if STAT_WIDGET_IDS.contains(&id.as_str()) && next_is_stat {
-            out.push(format!("divider:{}", uuid::Uuid::new_v4()));
+            out.push(format!("{DIVIDER_PREFIX}{}", uuid::Uuid::new_v4()));
         }
     }
     *enabled_widgets = out;
@@ -143,7 +146,7 @@ mod tests {
     // Collapses each divider id to "D" so assertions don't depend on its uuid suffix.
     fn shape(ids: &[String]) -> Vec<String> {
         ids.iter()
-            .map(|id| if id.starts_with("divider:") { "D".to_string() } else { id.clone() })
+            .map(|id| if id.starts_with(DIVIDER_PREFIX) { "D".to_string() } else { id.clone() })
             .collect()
     }
 

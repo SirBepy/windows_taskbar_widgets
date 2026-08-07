@@ -1,4 +1,4 @@
-use crate::settings::{self, SettingsState};
+use crate::settings::{self, SettingsState, DIVIDER_PREFIX};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, Window};
@@ -22,7 +22,7 @@ fn mk_item(app: &AppHandle, id: String, label: &str) -> Result<MenuItem<tauri::W
 // Dividers have no config to edit and are removed outright rather than parked in
 // hidden_widgets (their uuid suffix would never be re-offered for re-enabling anyway).
 fn is_divider(widget_id: &str) -> bool {
-    widget_id.starts_with("divider:")
+    widget_id.starts_with(DIVIDER_PREFIX)
 }
 
 #[tauri::command]
