@@ -105,10 +105,13 @@ self-correcting: the provider never has to remember anything across restarts, an
 does not understand the message ignores an unknown `cmd` and keeps its current behaviour, so this
 change is backwards compatible in both directions.
 
-**`hosted` tracks overlay placement specifically**, not merely "the widget is enabled here". A
-pomodoro tile sitting in the taskbar strip is a glance, not a replacement for the provider's own
-overlay, so the provider keeps drawing. See Open questions: Joe's quote is readable either way and
-this needs his confirmation.
+**`hosted` tracks presence in this app, not overlay placement specifically.** Settled by Joe on
+2026-08-07: the moment a provider's widget is enabled here at all, taskbar tile included, the
+provider suppresses its own overlay. This is the literal reading of "while this app is on, no other
+overlay shows up", and it is the simpler rule to explain: one app owns the surface, full stop.
+
+So the trigger is `enabled_widgets` membership minus `hidden_widgets`, not `widget_placement`. The
+message still resends on any change to either, and on connect.
 
 The provider-side change lands in the `pomodoro-overlay` repo and is out of scope for this one.
 
@@ -305,12 +308,12 @@ Carried from the todo, plus what this design adds:
 
 ## Open questions for sign-off
 
-- **Does `hosted:true` fire for any placement here, or only overlay placement?** This design assumes
-  overlay placement only (decision 3). Joe's "while this app is on, no other overlay shows up" is
-  readable as the broader rule, where a pomodoro tile in the strip is already enough to suppress
-  pomodoro-overlay's own window. Both are one-line changes at the call site; the answer is a product
-  call, not a technical one.
+- ~~Does `hosted:true` fire for any placement, or only overlay placement?~~ **Settled 2026-08-07:
+  any placement in this app.** See decision 3.
 - ~~Scale steps or free resize?~~ **Settled 2026-08-07: free resize.** See decision 6.
+
+Both design questions are now closed. The remaining gate is Joe reading this document and approving
+the approach as a whole.
 
 ## Open risks
 
