@@ -62,14 +62,20 @@ pub fn show_tile_menu(
 // Hide moves the id into hidden_widgets rather than dropping it, so re-enabling
 // from the settings window doesn't need to guess at where a widget used to sit.
 fn hide_widget(app: &AppHandle, widget_id: &str) {
-    let state = app.state::<SettingsState>();
-    let Ok(mut s) = state.0.lock() else { return };
-    s.enabled_widgets.retain(|w| w != widget_id);
-    if !s.hidden_widgets.iter().any(|w| w == widget_id) {
-        s.hidden_widgets.push(widget_id.to_string());
+    // Scoped so the lock is released before reconcile, which takes it again.
+    {
+        let state = app.state::<SettingsState>();
+        let Ok(mut s) = state.0.lock() else { return };
+        s.enabled_widgets.retain(|w| w != widget_id);
+        if !s.hidden_widgets.iter().any(|w| w == widget_id) {
+            s.hidden_widgets.push(widget_id.to_string());
+        }
+        let _ = settings::persist(app, &s);
     }
-    let _ = settings::persist(app, &s);
     let _ = app.emit_to("strip", "widgets-changed", ());
+    // Hiding an overlay-placed widget is the only way to close its window from
+    // its own context menu, so this path has to reconcile too.
+    crate::overlay::reconcile(app);
 }
 
 // Unlike hide_widget, drops the id entirely: a divider's uuid id is single-use,

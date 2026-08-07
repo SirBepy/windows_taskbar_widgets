@@ -116,6 +116,13 @@ pub fn spawn_poller(app: AppHandle) {
             if crate::flyout::is_open() {
                 let _ = app.emit_to("flyout", "system-stats", &stats);
             }
+            // Overlay windows render the same stat widgets, and there is no cheap
+            // "is it open" check: an existing window is by definition showing one.
+            for label in app.webview_windows().into_keys() {
+                if label.starts_with(crate::overlay::LABEL_PREFIX) {
+                    let _ = app.emit_to(&label, "system-stats", &stats);
+                }
+            }
 
             let poll_s = app
                 .try_state::<crate::settings::SettingsState>()
