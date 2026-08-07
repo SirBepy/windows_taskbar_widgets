@@ -32,8 +32,9 @@ export interface WireDragOptions {
   getId?: (el: HTMLElement) => string;
 }
 
-/** Pointer drag-to-reorder for one sibling of `row`. Extracted from the strip
- * (main.ts) so the settings screen's widget list can reuse it verbatim. */
+/** Pointer drag-to-reorder for one sibling of `row`. Live strip only (main.ts):
+ * an instant one-slot swap, deliberately snappier than the settings screen's
+ * gap-opening drag (widget-strip-drag.ts), since the strip is dragged far more. */
 export function wireDragReorder(row: HTMLElement, tile: HTMLElement, opts: WireDragOptions): void {
   const getId = opts.getId ?? ((el) => el.dataset.widget!);
   let startX = 0;
