@@ -36,6 +36,7 @@ export interface Settings {
   opacity: number;
   follow_taskbar: boolean;
   hide_from_capture: boolean;
+  taskbar_monitor: string;
   widget_config: Record<string, Record<string, unknown>>;
   dividers_migrated: boolean;
 }

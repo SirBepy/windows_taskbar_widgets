@@ -57,7 +57,7 @@ pub fn spawn_poller(app: AppHandle) {
                 .and_then(|s| s.0.lock().ok().map(|s| s.follow_taskbar))
                 .unwrap_or(true);
             let forced_visible = USER_FORCED_VISIBLE.load(Ordering::SeqCst);
-            let hide_needed = (follow_taskbar && crate::taskbar::taskbar_hidden())
+            let hide_needed = (follow_taskbar && crate::taskbar::taskbar_hidden(&app))
                 || (fullscreen && !forced_visible);
             let visible = win.is_visible().unwrap_or(true);
             if hide_needed && visible {
@@ -127,23 +127,10 @@ fn still_in_topmost_band(hwnd: isize) -> bool {
                 continue;
             }
             let non_topmost = GetWindowLongW(cur, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0;
-            if non_topmost || is_taskbar_class(cur) {
+            if non_topmost || crate::taskbar::is_taskbar_class(cur) {
                 return false;
             }
         }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn is_taskbar_class(hwnd: windows_sys::Win32::Foundation::HWND) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetClassNameW;
-    unsafe {
-        let mut class = [0u16; 32];
-        let len = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
-        matches!(
-            String::from_utf16_lossy(&class[..len]).as_str(),
-            "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
-        )
     }
 }
 
@@ -184,7 +171,7 @@ unsafe extern "system" fn on_foreground_event(
     _thread_id: u32,
     _time: u32,
 ) {
-    if hwnd.is_null() || !is_taskbar_class(hwnd) {
+    if hwnd.is_null() || !crate::taskbar::is_taskbar_class(hwnd) {
         return;
     }
     let strip = STRIP_HWND.load(Ordering::SeqCst);

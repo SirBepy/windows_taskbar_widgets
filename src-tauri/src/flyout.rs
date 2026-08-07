@@ -71,7 +71,7 @@ pub fn open_flyout(
     let w = (width_css * scale).round() as u32;
     let h = (height_css * scale).round() as u32;
 
-    let top_of_taskbar = crate::taskbar::taskbar_rect()
+    let top_of_taskbar = crate::taskbar::taskbar_rect(&app)
         .map(|(_, top, _, _)| top)
         .unwrap_or(strip_pos.y);
     let mut x = anchor_px - w as i32 / 2;

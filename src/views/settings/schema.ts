@@ -1,6 +1,7 @@
 import { defineSchema } from "../../../vendor/tauri_kit/frontend/settings/schema";
 import { widgetStripField } from "./widget-strip-field";
 import { autostartField } from "./autostart-field";
+import { taskbarMonitorField } from "./taskbar-monitor-field";
 
 export const settingsSchema = defineSchema({
   sections: [
@@ -11,6 +12,7 @@ export const settingsSchema = defineSchema({
     {
       title: "Host",
       fields: [
+        taskbarMonitorField(),
         {
           key: "follow_taskbar",
           kind: "toggle",

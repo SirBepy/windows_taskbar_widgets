@@ -230,6 +230,7 @@ pub fn run() {
             tile_menu::open_explorer,
             tile_menu::focus_or_launch_app,
             tile_menu::reorder_widgets,
+            taskbar::list_taskbar_monitors,
             tauri_kit_settings::kit_copy_logs,
             tauri_kit_settings::kit_reset_settings,
         ])

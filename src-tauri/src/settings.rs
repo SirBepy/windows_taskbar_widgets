@@ -23,6 +23,9 @@ pub struct Settings {
     // Opt-in only: excludes strip+flyout from screen capture, but also from the
     // user's own screenshots, so it must never default true.
     pub hide_from_capture: bool,
+    // "" means "whatever is primary right now" (default); otherwise a device name
+    // like "\\.\DISPLAY2" pinning a specific monitor's taskbar. See taskbar::select_taskbar.
+    pub taskbar_monitor: String,
     // Keyed by widget id; each value is that widget's own free-form config object.
     pub widget_config: HashMap<String, serde_json::Value>,
     // One-time guard for the divider backfill in `load`; must stay false once so a
@@ -48,6 +51,7 @@ impl Default for Settings {
             opacity: 100,
             follow_taskbar: true,
             hide_from_capture: false,
+            taskbar_monitor: String::new(),
             widget_config: HashMap::new(),
             dividers_migrated: false,
             kit: KitSettings::default(),
@@ -214,6 +218,18 @@ mod tests {
 
         assert_eq!(loaded.enabled_widgets, ["cpu", "divider:existing", "ram", "gpu", "disk"]);
         assert!(loaded.dividers_migrated);
+    }
+
+    #[test]
+    fn taskbar_monitor_defaults_empty_and_round_trips_a_saved_device() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        assert_eq!(load(&path).taskbar_monitor, "");
+
+        let written = Settings { taskbar_monitor: r"\\.\DISPLAY2".to_string(), ..Settings::default() };
+        tauri_kit_settings::store::save(&path, &written).unwrap();
+
+        assert_eq!(load(&path).taskbar_monitor, r"\\.\DISPLAY2");
     }
 
     #[test]
