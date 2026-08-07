@@ -5,6 +5,36 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_kit_settings::KitSettings;
 
+// x/y are CSS px relative to the monitor's work area, never desktop coords, so a
+// resolution change or a display rearrange doesn't strand an overlay off screen.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default)]
+pub struct OverlaySpec {
+    // "" means primary; otherwise a device name, same convention as taskbar_monitor.
+    #[serde(default)]
+    pub monitor: String,
+    #[serde(default)]
+    pub x: f64,
+    #[serde(default)]
+    pub y: f64,
+    // None means "the size the widget declared"; Some once the user has resized it.
+    #[serde(default)]
+    pub w: Option<f64>,
+    #[serde(default)]
+    pub h: Option<f64>,
+    #[serde(default)]
+    pub opacity: Option<u32>,
+}
+
+// Internally tagged on purpose: serde's default external tagging would write
+// {"Overlay":{..}}, a shape nothing else in this settings file uses.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Placement {
+    #[default]
+    Strip,
+    Overlay(OverlaySpec),
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Settings {
@@ -28,6 +58,9 @@ pub struct Settings {
     pub taskbar_monitor: String,
     // Keyed by widget id; each value is that widget's own free-form config object.
     pub widget_config: HashMap<String, serde_json::Value>,
+    // Keyed by widget id; an absent key means Placement::Strip, which is what makes
+    // this migration-free for every existing install.
+    pub widget_placement: HashMap<String, Placement>,
     // One-time guard for the divider backfill in `load`; must stay false once so a
     // pre-existing settings.json (missing this key) still runs it exactly once.
     pub dividers_migrated: bool,
@@ -53,9 +86,29 @@ impl Default for Settings {
             hide_from_capture: false,
             taskbar_monitor: String::new(),
             widget_config: HashMap::new(),
+            widget_placement: HashMap::new(),
             dividers_migrated: false,
             kit: KitSettings::default(),
         }
+    }
+}
+
+impl Settings {
+    // Enabled minus hidden: hidden wins, so a hidden widget never gets an overlay window.
+    pub fn is_active(&self, id: &str) -> bool {
+        self.enabled_widgets.iter().any(|w| w == id) && !self.hidden_widgets.iter().any(|w| w == id)
+    }
+
+    /// Ids placed as overlays right now, paired with their spec, in strip order.
+    pub fn overlays(&self) -> Vec<(String, OverlaySpec)> {
+        self.enabled_widgets
+            .iter()
+            .filter(|id| self.is_active(id))
+            .filter_map(|id| match self.widget_placement.get(id) {
+                Some(Placement::Overlay(spec)) => Some((id.clone(), spec.clone())),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -230,6 +283,49 @@ mod tests {
         tauri_kit_settings::store::save(&path, &written).unwrap();
 
         assert_eq!(load(&path).taskbar_monitor, r"\\.\DISPLAY2");
+    }
+
+    // The whole migration story for overlay placement: a settings.json written before
+    // widget_placement existed must load with every other value intact.
+    #[test]
+    fn settings_without_widget_placement_load_unchanged() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let json = r#"{"left_margin":44,"enabled_widgets":["cpu","ram"],"opacity":65,"dividers_migrated":true}"#;
+        std::fs::write(&path, json).unwrap();
+
+        let loaded = load(&path);
+
+        assert!(loaded.widget_placement.is_empty());
+        assert_eq!(loaded.left_margin, 44);
+        assert_eq!(loaded.enabled_widgets, ["cpu", "ram"]);
+    }
+
+    #[test]
+    fn placement_round_trips_as_an_internally_tagged_map() {
+        let spec = OverlaySpec { monitor: r"\\.\DISPLAY2".into(), x: 12.0, y: 40.0, w: Some(300.0), ..Default::default() };
+        let json = serde_json::to_string(&Placement::Overlay(spec.clone())).unwrap();
+
+        assert!(json.contains(r#""kind":"overlay""#), "got {json}");
+        assert_eq!(serde_json::from_str::<Placement>(&json).unwrap(), Placement::Overlay(spec));
+        assert_eq!(serde_json::to_string(&Placement::Strip).unwrap(), r#"{"kind":"strip"}"#);
+    }
+
+    #[test]
+    fn overlays_skips_hidden_and_strip_placed_widgets() {
+        let mut s = Settings {
+            enabled_widgets: ["cpu", "ram", "gpu"].map(String::from).into(),
+            hidden_widgets: vec!["ram".to_string()],
+            ..Settings::default()
+        };
+        let spec = OverlaySpec { x: 10.0, y: 10.0, ..Default::default() };
+        s.widget_placement.insert("cpu".into(), Placement::Overlay(spec.clone()));
+        s.widget_placement.insert("ram".into(), Placement::Overlay(spec));
+        s.widget_placement.insert("gpu".into(), Placement::Strip);
+
+        let ids: Vec<String> = s.overlays().into_iter().map(|(id, _)| id).collect();
+
+        assert_eq!(ids, ["cpu"]);
     }
 
     #[test]

@@ -18,15 +18,31 @@ export interface TaskbarWidget {
   icon?: string;
   /** Fixed at declare-time, sized for max content; see CLAUDE.md's fixed-size rule. Omit for tile-only widgets. */
   flyout?: { widthCss: number; heightCss: number };
+  /** Default AND minimum size when placed as a floating overlay; the user may resize up from it. */
+  overlay?: { widthCss: number; heightCss: number };
   /** Render the always-visible strip tile. Returns a cleanup fn. */
   mountTile(root: HTMLElement): () => void;
   mountFlyout?(root: HTMLElement): () => void;
+  /** Render the floating overlay. Falls back to mountFlyout, then mountTile, when absent. */
+  mountOverlay?(root: HTMLElement): () => void;
   /** Extra entries appended to this tile's native context menu. */
   menuItems?: () => { id: string; label: string }[];
   onMenuAction?: (id: string) => void;
   /** Rows rendered in the settings screen's per-widget config accordion. */
   configFields?: () => ConfigField[];
 }
+
+/** Mirrors settings.rs's OverlaySpec. x/y are CSS px within the monitor's work area. */
+export interface OverlaySpec {
+  monitor: string;
+  x: number;
+  y: number;
+  w?: number | null;
+  h?: number | null;
+  opacity?: number | null;
+}
+
+export type Placement = { kind: "strip" } | ({ kind: "overlay" } & OverlaySpec);
 
 export interface Settings {
   left_margin: number;
@@ -38,12 +54,43 @@ export interface Settings {
   hide_from_capture: boolean;
   taskbar_monitor: string;
   widget_config: Record<string, Record<string, unknown>>;
+  widget_placement: Record<string, Placement>;
   dividers_migrated: boolean;
 }
 
-/** Sets --widget-opacity, the 0-100 setting as a CSS alpha. */
-export function applyOpacity(settings: Settings | null | undefined): void {
-  const pct = settings?.opacity ?? 100;
+/** An absent entry means the strip, which is what keeps existing installs migration-free. */
+export function placementOf(
+  settings: Settings | null | undefined,
+  id: string,
+): Placement {
+  return settings?.widget_placement?.[id] ?? { kind: "strip" };
+}
+
+export function isOverlayPlaced(
+  settings: Settings | null | undefined,
+  id: string,
+): boolean {
+  return placementOf(settings, id).kind === "overlay";
+}
+
+/** Declared overlay size, falling back to the flyout's. Null means "cannot be an overlay". */
+export function overlayDims(
+  w: TaskbarWidget,
+): { widthCss: number; heightCss: number } | null {
+  return w.overlay ?? w.flyout ?? null;
+}
+
+/** Renderer falls back where size does not; see decision 1 in docs/widget-host-design.md. */
+export function overlayRenderer(w: TaskbarWidget): (root: HTMLElement) => () => void {
+  return (w.mountOverlay ?? w.mountFlyout ?? w.mountTile).bind(w);
+}
+
+/** Sets --widget-opacity, the 0-100 setting as a CSS alpha. `override` is an overlay's own value. */
+export function applyOpacity(
+  settings: Settings | null | undefined,
+  override?: number | null,
+): void {
+  const pct = override ?? settings?.opacity ?? 100;
   document.documentElement.style.setProperty("--widget-opacity", String(pct / 100));
 }
 
