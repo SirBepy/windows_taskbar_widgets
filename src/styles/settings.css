@@ -53,6 +53,15 @@ body,
   color: #e8e8e8;
 }
 
+/* Drag surfaces. The settings page has no body-level user-select: none (base.css
+   only covers the strip and flyout windows), so a drag paints a text selection
+   across every label it crosses. The clone is appended to body, hence listed. */
+.wsf-strip,
+.wsf-palette,
+.wsf-clone {
+  user-select: none;
+}
+
 .wsf-strip {
   display: flex;
   align-items: stretch;
