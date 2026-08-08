@@ -78,9 +78,17 @@ function tileTemplate(s: PomodoroPush | null, nowMs: number) {
   `;
 }
 
+// Survives mount/unmount cycles (renderTiles tears down/remounts every tile on every
+// settings save), so a remounted tile paints its last known state on its first frame
+// instead of sitting blank/clipped until the next TCP-bridged push arrives.
+let lastPomodoro: PomodoroPush | null = null;
+
+/** Last known push synchronously, then live updates via the bridge's event. */
 function subscribe(onState: (s: PomodoroPush) => void): () => void {
   let disposed = false;
+  if (lastPomodoro) onState(lastPomodoro);
   const unlisten = listen<PomodoroPush>("pomodoro-state", (e) => {
+    lastPomodoro = e.payload;
     if (!disposed) onState(e.payload);
   });
   return () => {
