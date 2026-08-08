@@ -4,8 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { runAutoUpdateCheck } from "../vendor/tauri_kit/frontend/updater/auto-check";
 import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { applyOpacity, isDragging, isOverlayPlaced, Settings, TaskbarWidget } from "./shared/widget";
-import { wireDragReorder } from "./shared/drag-reorder";
+import { applyOpacity, isOverlayPlaced, Settings, TaskbarWidget } from "./shared/widget";
 
 reportErrors("strip");
 
@@ -47,7 +46,6 @@ function reportStripWidth(row: HTMLElement): () => void {
 function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
   if (!widget.flyout) return () => {};
   const onEnter = () => {
-    if (isDragging()) return;
     flyoutOpenTimer = window.setTimeout(() => {
       const r = tile.getBoundingClientRect();
       invoke("open_flyout", {
@@ -78,13 +76,6 @@ function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget) {
   });
 }
 
-function wireDrag(tile: HTMLElement) {
-  wireDragReorder(row, tile, {
-    onDragStart: () => window.clearTimeout(flyoutOpenTimer),
-    onReorder: (order) => invoke("reorder_widgets", { order }).catch(() => {}),
-  });
-}
-
 // A widget placed as a floating overlay gets its own window instead of a tile, so
 // it is dropped here rather than filtered out of enabled_widgets (which would lose
 // its position in the strip if the user moves it back).
@@ -100,7 +91,6 @@ function renderTiles(ids: string[], settings: Settings | null) {
     tileCleanups.push(widget.mountTile(tile));
     tileCleanups.push(wireFlyoutHover(tile, widget));
     wireContextMenu(tile, widget);
-    wireDrag(tile);
   }
 }
 

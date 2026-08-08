@@ -16,10 +16,15 @@ sizes... thats too obtrusive."
 
 ## Sanctioned exceptions
 
-`transform: scale(1.04)` is a drag pick-up affordance, not a content-driven resize, at both of
-its sites: `.tile.dragging` in `src/styles/tile.css` (the live strip) and `.wsf-clone` in
-`src/styles/settings.css` (the settings-preview drag clone). Both stay. Any new drag pick-up
-affordance must be added here too.
+`transform: scale(1.04)` is a drag pick-up affordance, not a content-driven resize. One site is
+left, `.wsf-clone` in `src/styles/settings.css` (the settings-preview drag clone). It stays. Any
+new drag pick-up affordance must be added here too.
+
+The live strip's `.tile.dragging` was the other site. It went away on 2026-08-08 along with
+drag-to-reorder on the taskbar itself, which Joe cut: "live moving around doesnt work very well,
+so lets just disable it, we got it in settings anyway". Reordering is now the settings preview
+strip only (`src/views/settings/widget-strip-drag.ts`), plus the tile right-click menu's
+move-left / move-right items.
 
 **A floating overlay's resize grip** (`#overlay-resize`, `src/styles/base.css`) is a continuous,
 deliberate user action, so it is neither a live change nor a one-time config toggle. Chosen by Joe
