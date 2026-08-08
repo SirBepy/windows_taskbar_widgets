@@ -1,6 +1,7 @@
 //! TCP client for pomodoro-overlay's newline-delimited JSON widget bridge
 //! (see that repo's src-tauri/src/bridge.rs). std::thread + std::net, not
 //! tokio: the protocol is a plain line-based loopback socket.
+use crate::settings::SettingsState;
 use serde::Deserialize;
 use serde_json::json;
 use std::io::{BufRead, BufReader, Write};
@@ -67,6 +68,32 @@ fn set_writer(app: &AppHandle, tx: Option<Sender<String>>) {
     }
 }
 
+/// Enabled anywhere in this app, taskbar or overlay alike (design doc decision 3).
+fn pomodoro_hosted(app: &AppHandle) -> bool {
+    app.try_state::<SettingsState>()
+        .and_then(|s| s.0.lock().ok().map(|g| g.is_active("pomodoro")))
+        .unwrap_or(false)
+}
+
+/// No-op while disconnected: a fresh connect resends it, so nothing is lost.
+pub fn send_host_overlay(app: &AppHandle) {
+    // Resolved before the bridge lock is taken: holding both at once is the one
+    // lock order no other path here uses, and std Mutex gives no re-entrancy.
+    let suppress_compact = pomodoro_hosted(app);
+    let Some(state) = app.try_state::<PomodoroBridgeState>() else { return };
+    let Ok(guard) = state.0.lock() else { return };
+    let Some(tx) = guard.as_ref() else { return };
+    // suppress_fullscreen stays false: this app never draws a fullscreen
+    // overlay, so pomodoro-overlay's big view is never this app's to hide.
+    let line = json!({
+        "cmd": "host_overlay",
+        "suppress_compact": suppress_compact,
+        "suppress_fullscreen": false,
+    })
+    .to_string();
+    let _ = tx.send(line);
+}
+
 /// Connects, authenticates, and forwards state lines until the socket drops.
 /// Returns Err on any failure so `run`'s caller backs off and retries.
 fn try_connect(app: &AppHandle) -> Result<(), ()> {
@@ -79,6 +106,7 @@ fn try_connect(app: &AppHandle) -> Result<(), ()> {
 
     let (tx, rx) = channel::<String>();
     set_writer(app, Some(tx));
+    send_host_overlay(app);
     let write_handle = std::thread::spawn(move || {
         for line in rx {
             if writer.write_all(format!("{line}\n").as_bytes()).is_err() {

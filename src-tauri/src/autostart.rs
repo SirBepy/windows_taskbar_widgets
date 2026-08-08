@@ -1,4 +1,6 @@
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+// Not renamed with the app: this is the live registry value name under Run,
+// changing it orphans an already-enabled autostart entry.
 const VALUE_NAME: &str = "Taskbar Widgets";
 
 #[cfg(target_os = "windows")]

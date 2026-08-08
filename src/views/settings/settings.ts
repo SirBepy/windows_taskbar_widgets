@@ -21,7 +21,9 @@ export function mountSettings(
   return renderSettingsPage(root, {
     schema: settingsSchema,
     systemInline,
-    about: {},
+    // About page display name only; productName/identifier stay "Taskbar
+    // Widgets" so auto-update keeps installing into the existing folder.
+    about: { appName: "Widgets" },
     palettes: SIRBEPY_PALETTES,
     theme: { defaultPalette: SIRBEPY_DEFAULT_PALETTE },
     getVersionInfo: async () => {

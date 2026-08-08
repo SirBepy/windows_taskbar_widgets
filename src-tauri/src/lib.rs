@@ -38,6 +38,9 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
     let _ = app.emit("widgets-changed", ());
     overlay::reconcile(&app);
+    // Resent unconditionally, same as overlay::reconcile above: cheap, and it
+    // covers pomodoro enable/disable and placement changes alike.
+    bridge_pomodoro::send_host_overlay(&app);
     Ok(())
 }
 
@@ -111,7 +114,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     };
     TrayIconBuilder::with_id("main-tray")
         .icon(icon)
-        .tooltip("Taskbar Widgets")
+        .tooltip("Widgets")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

@@ -15,7 +15,7 @@
       {
         "label": "strip",
         "url": "index.html",
-        "title": "Taskbar Widgets",
+        "title": "Widgets",
         "width": 320,
         "height": 48,
         "decorations": false,
@@ -45,7 +45,7 @@
       {
         "label": "settings",
         "url": "settings.html",
-        "title": "Taskbar Widgets - Settings",
+        "title": "Widgets - Settings",
         "width": 780,
         "height": 560,
         "decorations": true,

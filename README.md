@@ -1,4 +1,4 @@
-# Taskbar Widgets
+# Widgets
 
 A Tauri 2 host app that renders a strip of live widgets over the empty left
 region of the Windows 11 taskbar. Widgets show a compact always-visible tile;

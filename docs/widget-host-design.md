@@ -93,25 +93,71 @@ different levels of readiness:
   Conductor does not draw an overlay today, so nothing is needed from it now. If that ever changes,
   the cheapest path is to stop dropping the write half.
 
-Protocol, sent on connect and again whenever the widget's placement changes:
+Protocol, sent on connect and again whenever the relevant settings change:
 
 ```json
-{"cmd":"host_overlay","hosted":true}
+{"cmd":"host_overlay","suppress_compact":true,"suppress_fullscreen":false}
 ```
 
-`hosted: true` means "your widget is being drawn inside Widgets, suppress your own overlay".
-`hosted: false` means "it is not, draw your own". Sending it on connect makes the state
-self-correcting: the provider never has to remember anything across restarts, and a provider that
-does not understand the message ignores an unknown `cmd` and keeps its current behaviour, so this
-change is backwards compatible in both directions.
+Revised 2026-08-08 from an earlier `{"hosted":bool}` shape. Joe's refinement:
 
-**`hosted` tracks presence in this app, not overlay placement specifically.** Settled by Joe on
-2026-08-07: the moment a provider's widget is enabled here at all, taskbar tile included, the
-provider suppresses its own overlay. This is the literal reading of "while this app is on, no other
-overlay shows up", and it is the simpler rule to explain: one app owns the surface, full stop.
+> i wish the overlay showed when it was fullscreen, but when it was just the lil overlay, i dont
+> wanna see it... i wonder if theres a way to set that up in Pomodoro overlay, that it detects if
+> the widgets app is running, and if it is, then hide the lil overlays, but still choose to show
+> big overlays
 
-So the trigger is `enabled_widgets` membership minus `hidden_widgets`, not `widget_placement`. The
-message still resends on any change to either, and on connect.
+So suppression is selective, not total: a plain `hosted` boolean cannot express "hide the small one,
+keep the big one", hence two explicit fields instead of one. `suppress_fullscreen` is always `false`
+today: this app has no fullscreen render target of its own, so it never has standing to suppress
+pomodoro-overlay's fullscreen view. The field still ships (not omitted) so the receiver never has to
+assume an absent key means "unaffected" versus "suppress everything" - the wire format states both
+facts explicitly every time.
+
+Sending it on connect makes the state self-correcting: the provider never has to remember anything
+across restarts, and a provider that does not understand `host_overlay` ignores an unknown `cmd` and
+keeps its current behaviour, so this change is backwards compatible in both directions.
+
+**`suppress_compact` tracks presence in this app, not overlay placement specifically.** Settled by
+Joe on 2026-08-07: the moment a provider's widget is enabled here at all, taskbar tile included, the
+provider suppresses its own compact overlay. This is the literal reading of "while this app is on,
+no other overlay shows up", and it is the simpler rule to explain: one app owns the compact surface,
+full stop.
+
+So the trigger is `enabled_widgets` membership minus `hidden_widgets` (`Settings::is_active`), not
+`widget_placement`. The message resends on every `save_settings` call (unconditional, same pattern
+as `overlay::reconcile`), and once more on every bridge (re)connect.
+
+### Receiving contract for pomodoro-overlay
+
+This repo's half (shipped 2026-08-08, `src-tauri/src/bridge_pomodoro.rs`): the pomodoro TCP client
+pushes the line above through the existing writer channel (`PomodoroBridgeState`'s
+`mpsc::Sender<String>`, the same one `pomodoro_cmd` already uses) at two moments:
+
+1. **On connect**, right after the writer is installed (`bridge_pomodoro.rs`'s `try_connect`,
+   immediately after `set_writer(app, Some(tx))`), computed fresh from current settings.
+2. **On every settings save** (`save_settings` in `lib.rs`), unconditionally - covers pomodoro
+   being enabled/disabled and any placement change, without needing to diff old vs new.
+
+Nothing is sent while disconnected; `send_host_overlay` is a no-op if the writer is `None`, and the
+next connect resends the current state anyway.
+
+What pomodoro-overlay (the receiver, its own repo, out of scope here) should do with each field:
+
+- **`suppress_compact: true`** - hide its own small/compact overlay. It was already open: close it.
+  It was already closed: stay closed. No animation requirement, this is a state, not an event.
+- **`suppress_compact: false`** - show its own small/compact overlay again (the widget is no longer
+  hosted here, e.g. the user disabled or removed it in Widgets).
+- **`suppress_fullscreen: false`** (the only value this app ever sends) - never hide the fullscreen
+  overlay in response to this message. Whatever independently controls when pomodoro-overlay's
+  fullscreen view shows (a focus session starting, etc.) is untouched by `host_overlay` entirely.
+- **Unknown fields or an unrecognised `cmd`** - ignore and keep current behaviour, per the
+  backwards-compatible design above.
+- **Connection drops** (this app quits, crashes, or is killed - the TCP client, so the socket close
+  is visible to pomodoro-overlay as the server) - restore its own compact overlay immediately, same
+  as if it had just received `suppress_compact: false`. This is decision 4's disconnect-driven
+  restore: one mechanism covers clean quit, crash, and kill alike, and there is no state to leak.
+  **This is the part that matters most**: skipping it leaves the user with no overlay at all, small
+  or big, the moment Widgets closes.
 
 The provider-side change lands in the `pomodoro-overlay` repo and is out of scope for this one.
 
@@ -284,9 +330,11 @@ avoids the class of bug where the drag path and the settings path drift apart.
 3. **Placement UI.** A placement control per widget in the settings screen's existing per-widget
    accordion (`src/views/settings/widget-strip-field.ts`), the appearance knobs from decision 6,
    drag-to-place, snapping, reset-position. **This is the first user-visible release.**
-4. **Provider suppression.** The `host_overlay` message on the pomodoro bridge, plus the matching
-   change in the `pomodoro-overlay` repo.
-5. **The rename.** Product name only, per decision 5. Last, because it touches nothing functional.
+4. **Provider suppression.** The `host_overlay` message on the pomodoro bridge - **this repo's half
+   shipped 2026-08-08**, see decision 3's receiving contract - plus the matching change in the
+   `pomodoro-overlay` repo, which is separate work in that repo.
+5. **The rename.** Shipped 2026-08-08. Product name and identifier kept exactly as-is (see decision
+   5's note on the todo's later, more specific ruling); only user-visible strings changed.
 
 ## Acceptance
 
