@@ -42,11 +42,13 @@ function goToRoot(): void {
 
 mountSettings(bodyRoot, { onHeaderChange: renderHeader });
 
-// "Edit this widget" from a tile's right-click menu (tile_menu.rs's open_settings):
-// null section just surfaces the widget list, an id also expands + scrolls to it.
+// Both entry points hit tile_menu.rs's open_settings. The tray's "Open settings"
+// sends null and must land on the root page; only a tile's "Edit this widget"
+// carries an id, and that one navigates in and scrolls to the widget.
 listen<{ section: string | null }>("settings-navigate", (e) => {
   goToRoot();
-  document.querySelector<HTMLElement>('[data-nav="section-widgets"]')?.click();
   const widgetId = e.payload.section;
-  if (widgetId) selectWidgetInStrip(widgetId);
+  if (!widgetId) return;
+  document.querySelector<HTMLElement>('[data-nav="section-widgets"]')?.click();
+  selectWidgetInStrip(widgetId);
 });
