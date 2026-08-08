@@ -21,7 +21,14 @@ use tauri::{
 
 #[tauri::command]
 fn get_settings(state: tauri::State<SettingsState>) -> Settings {
-    state.0.lock().map(|s| s.clone()).unwrap_or_default()
+    // A standard Mutex stays poisoned forever once a panic occurs while held, so every
+    // reader must recover via into_inner() rather than fall back to defaults on every
+    // call for the rest of the process lifetime.
+    state
+        .0
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
 }
 
 // Param named `settings` (not `new_settings`): the kit's renderer.ts hardcodes
@@ -32,10 +39,15 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     apply_capture_exclusion(&app, settings.hide_from_capture);
     let state = app.state::<SettingsState>();
     // A silent skip here persists the file but leaves memory stale, so every reader
-    // after it (overlay::reconcile especially) acts on the pre-save settings.
+    // after it (overlay::reconcile especially) acts on the pre-save settings. Recover
+    // via into_inner() instead: the mutex stays poisoned forever otherwise, so a
+    // skip-on-poison would desync memory from disk for the rest of the process.
     match state.0.lock() {
         Ok(mut s) => *s = settings,
-        Err(e) => log::error!("save_settings: settings lock poisoned, state not updated: {e}"),
+        Err(poisoned) => {
+            log::error!("save_settings: settings lock poisoned, recovering and updating state");
+            *poisoned.into_inner() = settings;
+        }
     }
     // Broadcast (not emit_to "strip"): the flyout window also renders widget_config
     // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
@@ -189,7 +201,7 @@ pub fn run() {
                 .0
                 .lock()
                 .map(|s| s.hide_from_capture)
-                .unwrap_or(false);
+                .unwrap_or_else(|poisoned| poisoned.into_inner().hide_from_capture);
             apply_capture_exclusion(&handle, hide_from_capture);
 
             let _ = taskbar::position_strip(&handle, 320.0);
