@@ -21,6 +21,9 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 // Matches the design's snapping threshold; assistance only, free x/y is still stored.
 const SNAP_PX = 12;
 const PERSIST_DEBOUNCE_MS = 250;
+// Mirrors MIN_VISIBLE in src-tauri/src/overlay.rs, which clamps the same way for
+// hand-edited settings and vanished monitors. Same CSS px space, so no conversion.
+const MIN_VISIBLE_PX = 48;
 
 const win = getCurrentWindow();
 const root = document.getElementById("overlay")!;
@@ -65,6 +68,10 @@ async function persistGeometry(): Promise<void> {
   if (Math.abs(monitor.width - (x + w)) <= SNAP_PX) x = monitor.width - w;
   if (Math.abs(y) <= SNAP_PX) y = 0;
   if (Math.abs(monitor.height - (y + h)) <= SNAP_PX) y = monitor.height - h;
+
+  // After snapping, so a deliberate edge snap is never pulled back off the edge.
+  x = Math.min(Math.max(x, MIN_VISIBLE_PX - w), monitor.width - MIN_VISIBLE_PX);
+  y = Math.min(Math.max(y, 0), monitor.height - MIN_VISIBLE_PX);
 
   await invoke("save_overlay_geometry", {
     id: widgetId,
