@@ -95,10 +95,16 @@ fn apply_geometry(app: &AppHandle, win: &tauri::WebviewWindow, spec: &OverlaySpe
 /// Creates, moves, resizes and closes overlay windows so the live set matches settings.
 /// One path for startup, a settings change, and a drag, so they cannot drift apart.
 pub fn reconcile(app: &AppHandle) {
+    // Logged, not silent: a skipped reconcile used to look identical to "there was
+    // nothing to do", which cost a full debugging session on 2026-08-08.
     let desired: Vec<(String, OverlaySpec)> = match app.state::<SettingsState>().0.lock() {
         Ok(s) => s.overlays(),
-        Err(_) => return,
+        Err(e) => {
+            log::error!("overlay reconcile skipped, settings lock poisoned: {e}");
+            return;
+        }
     };
+    log::info!("overlay reconcile: {} wanted", desired.len());
     let wanted: Vec<(String, String, OverlaySpec)> = desired
         .into_iter()
         .map(|(id, spec)| (label_for(&id), id, spec))
@@ -117,6 +123,7 @@ pub fn reconcile(app: &AppHandle) {
         match app.get_webview_window(label) {
             Some(win) => apply_geometry(app, &win, spec),
             None => {
+                log::info!("overlay {id}: building {label}");
                 if let Err(e) = build(app, id, label, spec) {
                     log::error!("overlay {id}: {e}");
                 }

@@ -31,8 +31,11 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     self::settings::persist(&app, &settings)?;
     apply_capture_exclusion(&app, settings.hide_from_capture);
     let state = app.state::<SettingsState>();
-    if let Ok(mut s) = state.0.lock() {
-        *s = settings;
+    // A silent skip here persists the file but leaves memory stale, so every reader
+    // after it (overlay::reconcile especially) acts on the pre-save settings.
+    match state.0.lock() {
+        Ok(mut s) => *s = settings,
+        Err(e) => log::error!("save_settings: settings lock poisoned, state not updated: {e}"),
     }
     // Broadcast (not emit_to "strip"): the flyout window also renders widget_config
     // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
