@@ -7,10 +7,12 @@ export const settingsSchema = defineSchema({
   sections: [
     {
       title: "Widgets",
+      category: "General",
       fields: [widgetStripField()],
     },
     {
       title: "Host",
+      category: "General",
       fields: [
         taskbarMonitorField(),
         {
