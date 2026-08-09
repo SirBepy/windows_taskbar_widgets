@@ -32,6 +32,15 @@ on 2026-08-07 over fixed scale steps. The invariant the rule actually protects s
 content never changes an overlay's size, only the user's grip does, and the widget's declared
 `overlay`/`flyout` dims are enforced natively as the minimum it can be shrunk to.
 
+**Per-open measured sizing** (conductor's `flyoutDims()`, `src/widgets/conductor.ts`) is the
+pattern for a widget whose max case has no natural cap (an account list, unlike a process list
+capped at "top N"). The size is still fixed once the flyout is open - it's recomputed once, at
+hover-open time, from a real off-screen DOM measurement of that open's actual content, not a
+scroll+cap or a hand-kept magic-number estimate. Chosen 2026-08-09 after a magic-constant estimate
+drifted from real layout and left a visible scrollbar; Joe wants no scrollbar or account cap here,
+ever, no matter how many accounts. Reuse `flyoutDims()` over hardcoding a max for any future widget
+whose list length is genuinely unbounded.
+
 ## Reserving width for numbers
 
 `min-width: 3ch` alone does NOT hold a number's width. `ch` is the width of the "0" glyph, so it
@@ -46,3 +55,6 @@ never by eye.
 Flyout dims are declared per widget in the `flyout` field of the `TaskbarWidget` contract,
 `src/shared/widget.ts`. Overlay dims live in the sibling `overlay` field; `overlayDims()` resolves
 `overlay ?? flyout`, and a widget declaring neither cannot be placed as a floating overlay.
+`flyoutDims()` (optional) overrides `flyout` for the real hover-open only, recomputed each time -
+see "Per-open measured sizing" above. `flyout` itself stays a plain static fallback (settings
+preview, overlay min-size), since `widget.ts` is also imported in non-DOM test contexts.
