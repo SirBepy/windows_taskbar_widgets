@@ -48,11 +48,12 @@ function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
   const onEnter = () => {
     flyoutOpenTimer = window.setTimeout(() => {
       const r = tile.getBoundingClientRect();
+      const dims = widget.flyoutDims?.() ?? widget.flyout!;
       invoke("open_flyout", {
         widgetId: widget.id,
         anchorXCss: r.left + r.width / 2,
-        widthCss: widget.flyout!.widthCss,
-        heightCss: widget.flyout!.heightCss,
+        widthCss: dims.widthCss,
+        heightCss: dims.heightCss,
       }).catch(() => {});
     }, HOVER_OPEN_DELAY_MS);
   };

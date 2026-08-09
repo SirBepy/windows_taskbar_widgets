@@ -18,6 +18,12 @@
   opacity: 1;
 }
 
+/* Only conductor's tile is click-to-refresh (see conductor.ts::requestRefresh);
+   other tiles have no click action, so the pointer cursor stays scoped here. */
+.tile[data-widget="conductor"] {
+  cursor: pointer;
+}
+
 .tile .ph {
   font-size: 14px;
   opacity: 0.75;
@@ -127,6 +133,22 @@
 
 .dial {
   display: block;
+}
+
+/* In-flight refresh feedback: opacity-only, so the tile's footprint never
+   moves (CLAUDE.md's fixed-size rule). Cleared once fresh data lands. */
+.dials.refreshing {
+  animation: dialsPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes dialsPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* foreignObject icon: content is scaled by the dial's own SVG viewBox

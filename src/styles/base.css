@@ -167,28 +167,66 @@ body:hover #overlay-resize {
   background: #f04747;
 }
 
-.acct {
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  padding: 8px 0;
+/* ---------- conductor account cards (mirrors claude_usage_in_taskbar's
+   dashboard .dash-acard ring cards, sized down to fit the flyout) ---------- */
+
+.acct-card {
+  border-top: 3px solid var(--acc, rgba(255, 255, 255, 0.3));
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 10px;
 }
 
-.acct:first-of-type {
-  border-top: none;
+.acct-card:first-of-type {
+  margin-top: 0;
 }
 
-.acct-head {
+.acct-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
   font-weight: 600;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .acct-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ring-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.ring-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+
+.ring-pct {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ring-cd {
+  font-size: 10.5px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
 }
 
 .empty {
