@@ -48,6 +48,9 @@ export function subscribeNowPlaying(onData: (np: SpotifyNowPlaying | null) => vo
 const readShowArt = (cfg: Record<string, unknown>): boolean =>
   (cfg.show_album_art as boolean | undefined) ?? true;
 
+const readShowStatusIcon = (cfg: Record<string, unknown>): boolean =>
+  (cfg.show_status_icon as boolean | undefined) ?? true;
+
 function artTemplate(np: SpotifyNowPlaying | null, showArt: boolean, cls: string, iconSize: string) {
   const uri = showArt ? np?.art_data_uri : null;
   return html`
@@ -59,13 +62,13 @@ function artTemplate(np: SpotifyNowPlaying | null, showArt: boolean, cls: string
 
 // ---------- tile ----------
 
-function tileTemplate(np: SpotifyNowPlaying | null, showArt: boolean) {
+function tileTemplate(np: SpotifyNowPlaying | null, showArt: boolean, showStatus: boolean) {
   const title = np?.title || "Nothing playing";
   return html`
     <span class="spotify-tile">
       ${artTemplate(np, showArt, "spotify-art", "11px")}
       <span class="spotify-tile-text"><span class="spotify-tile-text-inner">${title}</span></span>
-      ${np ? html`<i class="ph ${np.playing ? "ph-play" : "ph-pause"} spotify-status"></i>` : null}
+      ${np && showStatus ? html`<i class="ph ${np.playing ? "ph-play" : "ph-pause"} spotify-status"></i>` : null}
     </span>
   `;
 }
@@ -161,6 +164,7 @@ function flyoutTemplate(np: SpotifyNowPlaying | null, showArt: boolean, position
 
 const configFields: ConfigField[] = [
   { key: "show_album_art", label: "Show album art", type: "toggle", default: true },
+  { key: "show_status_icon", label: "Show play/pause icon", type: "toggle", default: true },
 ];
 
 export const spotifyWidget: TaskbarWidget = {
@@ -178,8 +182,9 @@ export const spotifyWidget: TaskbarWidget = {
   mountTile(root) {
     let latest: SpotifyNowPlaying | null = null;
     let showArt = true;
+    let showStatus = true;
     const repaint = () => {
-      render(tileTemplate(latest, showArt), root);
+      render(tileTemplate(latest, showArt, showStatus), root);
       updateTileMarquee(root);
     };
     const onClick = () => {
@@ -192,7 +197,9 @@ export const spotifyWidget: TaskbarWidget = {
       repaint();
     });
     const stopSettings = subscribeSettings((s) => {
-      showArt = readShowArt(widgetConfig(s, "spotify"));
+      const cfg = widgetConfig(s, "spotify");
+      showArt = readShowArt(cfg);
+      showStatus = readShowStatusIcon(cfg);
       repaint();
     });
     return () => {
