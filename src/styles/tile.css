@@ -18,9 +18,11 @@
   opacity: 1;
 }
 
-/* Only conductor's tile is click-to-refresh (see conductor.ts::requestRefresh);
-   other tiles have no click action, so the pointer cursor stays scoped here. */
-.tile[data-widget="conductor"] {
+/* conductor's tile is click-to-refresh (see conductor.ts::requestRefresh) and
+   spotify's opens the app (see spotify.ts's mountTile); other tiles have no
+   click action, so the pointer cursor stays scoped to these two. */
+.tile[data-widget="conductor"],
+.tile[data-widget="spotify"] {
   cursor: pointer;
 }
 
@@ -221,4 +223,74 @@
 .pomo-toggle .ph {
   font-size: 10px;
   opacity: 1;
+}
+
+/* ---------- spotify tile: art thumb + fixed-width marquee text ---------- */
+
+.spotify-tile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spotify-art {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.09);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.spotify-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.spotify-art-empty .ph {
+  opacity: 0.55;
+}
+
+/* Fixed box (never resizes live, CLAUDE.md's rule): overflow scrolls via .marquee,
+   only added when the title actually overflows - see spotify.ts::updateTileMarquee. */
+.spotify-tile-text {
+  width: 100px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  position: relative;
+}
+
+.spotify-tile-text.marquee {
+  text-overflow: clip;
+}
+
+.spotify-tile-text-inner {
+  display: inline-block;
+}
+
+.spotify-tile-text.marquee .spotify-tile-text-inner {
+  padding-right: 24px;
+  animation: spotifyMarquee 7s linear infinite;
+}
+
+@keyframes spotifyMarquee {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(calc(-100% + 76px));
+  }
+}
+
+.spotify-status {
+  font-size: 10px;
+  opacity: 0.75;
+  flex-shrink: 0;
 }

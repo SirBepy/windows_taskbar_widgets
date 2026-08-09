@@ -7,6 +7,7 @@ import { diskWidget } from "./disk";
 import { gpuWidget } from "./gpu";
 import { pomodoroWidget } from "./pomodoro";
 import { ramWidget } from "./ram";
+import { spotifyWidget } from "./spotify";
 
 const ALL: TaskbarWidget[] = [
   cpuWidget,
@@ -15,6 +16,7 @@ const ALL: TaskbarWidget[] = [
   diskWidget,
   conductorWidget,
   pomodoroWidget,
+  spotifyWidget,
 ];
 
 // Divider ids are minted per-instance (shared/divider.ts) rather than declared here,

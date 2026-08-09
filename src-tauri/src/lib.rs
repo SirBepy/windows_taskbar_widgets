@@ -6,6 +6,7 @@ mod conductor_data;
 mod flyout;
 mod overlay;
 mod settings;
+mod spotify_smtc;
 mod system_stats;
 mod taskbar;
 mod tile_menu;
@@ -213,6 +214,7 @@ pub fn run() {
             autohide::spawn_poller(handle.clone());
             bridge_conductor::spawn(handle.clone());
             bridge_pomodoro::spawn(handle.clone());
+            spotify_smtc::spawn(handle.clone());
             if let Err(e) = build_tray(&handle) {
                 eprintln!("failed to build tray: {e}");
             }
@@ -255,9 +257,17 @@ pub fn run() {
             tile_menu::open_settings,
             tile_menu::open_task_manager,
             tile_menu::open_explorer,
+            tile_menu::open_spotify,
             tile_menu::focus_or_launch_app,
             tile_menu::reorder_widgets,
             taskbar::list_taskbar_monitors,
+            spotify_smtc::get_spotify_now_playing,
+            spotify_smtc::spotify_toggle_play_pause,
+            spotify_smtc::spotify_next,
+            spotify_smtc::spotify_previous,
+            spotify_smtc::spotify_seek,
+            spotify_smtc::spotify_toggle_shuffle,
+            spotify_smtc::spotify_toggle_repeat,
             tauri_kit_settings::kit_copy_logs,
             tauri_kit_settings::kit_reset_settings,
         ])

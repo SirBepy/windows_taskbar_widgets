@@ -177,6 +177,14 @@ pub fn open_explorer(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_spotify() -> Result<(), String> {
+    let mut cmd = std::process::Command::new("explorer.exe");
+    cmd.arg("spotify:");
+    detach(&mut cmd);
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn focus_or_launch_app(app: String) -> Result<(), String> {
     focus_or_launch_app_impl(&app)
 }

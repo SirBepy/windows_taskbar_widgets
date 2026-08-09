@@ -54,6 +54,15 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Performance",
     "Win32_System_Memory",
 ] }
+# Media_Control: GlobalSystemMediaTransportControlsSession(Manager) for spotify_smtc.rs.
+# Media: MediaPlaybackAutoRepeatMode lives one namespace up from Media::Control, not in it.
+windows = { version = "0.62", features = [
+    "Media_Control",
+    "Media",
+    "Foundation",
+    "Storage_Streams",
+] }
+base64 = "0.22"
 
 [profile.release]
 panic = "abort"
