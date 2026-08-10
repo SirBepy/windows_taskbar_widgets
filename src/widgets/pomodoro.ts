@@ -49,10 +49,10 @@ function cmd(action: string, phase?: string) {
   invoke("pomodoro_cmd", { action, phase: phase ?? null }).catch(() => {});
 }
 
-function toggle(e: Event, s: PomodoroPush) {
-  e.stopPropagation();
+function toggle(live: PomodoroPush | null) {
+  if (!live) return;
   if (isDragging()) return;
-  cmd(s.running ? "pause" : "start");
+  cmd(live.running ? "pause" : "start");
 }
 
 // Same skeleton for connected and disconnected: only text/colour/opacity vary,
@@ -67,13 +67,7 @@ function tileTemplate(s: PomodoroPush | null, nowMs: number) {
         style="background:${live ? PHASE_COLOR[phase] : "rgba(255,255,255,.3)"}"
       ></span>
       <span class="pomo-tile-time">${live ? fmtTime(displaySec(live, nowMs)) : "--:--"}</span>
-      <button
-        class="pomo-toggle"
-        ?disabled=${!live}
-        @click=${(e: Event) => live && toggle(e, live)}
-      >
-        <i class="ph ${live?.running ? "ph-pause" : "ph-play"}"></i>
-      </button>
+      <i class="ph ${live?.running ? "ph-pause" : "ph-play"} pomo-status"></i>
     </span>
   `;
 }
@@ -129,7 +123,10 @@ export const pomodoroWidget: TaskbarWidget = {
       repaint();
       retime();
     });
+    const onClick = () => toggle(latest && latest.connected ? latest : null);
+    root.addEventListener("click", onClick);
     return () => {
+      root.removeEventListener("click", onClick);
       stop();
       clearInterval(tick);
     };
