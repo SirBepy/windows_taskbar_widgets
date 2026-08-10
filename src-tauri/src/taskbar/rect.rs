@@ -1,7 +1,11 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, PhysicalPosition, PhysicalSize};
 
 #[cfg(target_os = "windows")]
 use super::monitors::selected_taskbar;
+
+// Cached for reassert_strip_position to redo layout without a fresh JS width.
+static LAST_STRIP_WIDTH_CSS: AtomicU64 = AtomicU64::new(320.0f64.to_bits());
 
 /// Primary-taskbar rect in physical px via SHAppBarMessage; None off-Windows or if the
 /// call fails. ABM_GETTASKBARPOS reports the docked position even while auto-hidden,
@@ -187,25 +191,40 @@ pub fn position_strip(app: &AppHandle, strip_css_width: f64) -> tauri::Result<()
     let Some(win) = app.get_webview_window("strip") else {
         return Ok(());
     };
+    LAST_STRIP_WIDTH_CSS.store(strip_css_width.to_bits(), Ordering::Relaxed);
     let scale = win.scale_factor().unwrap_or(1.0);
     let settings = app.state::<crate::settings::SettingsState>();
     let left_margin = settings.0.lock().map(|s| s.left_margin).unwrap_or(12) as f64;
 
     let w = (strip_css_width * scale).round() as u32;
-    if let Some((left, top, _, bottom)) = taskbar_rect(app) {
+    let (size, pos) = if let Some((left, top, _, bottom)) = taskbar_rect(app) {
         let h = (bottom - top).max(1) as u32;
         let x = left + (left_margin * scale).round() as i32;
-        win.set_size(PhysicalSize::new(w.max(1), h))?;
-        win.set_position(PhysicalPosition::new(x, top))?;
+        (PhysicalSize::new(w.max(1), h), PhysicalPosition::new(x, top))
     } else if let Ok(Some(monitor)) = win.primary_monitor() {
         let h = (48.0 * scale).round() as u32;
         let wa = monitor.work_area();
         let x = wa.position.x + (left_margin * scale) as i32;
         let y = wa.position.y + wa.size.height as i32 - h as i32;
-        win.set_size(PhysicalSize::new(w.max(1), h))?;
-        win.set_position(PhysicalPosition::new(x, y))?;
+        (PhysicalSize::new(w.max(1), h), PhysicalPosition::new(x, y))
+    } else {
+        return Ok(());
+    };
+    // Skip no-op Win32 calls: this runs 4x/sec from autohide's poller.
+    if win.outer_size().ok() != Some(size) {
+        win.set_size(size)?;
+    }
+    if win.outer_position().ok() != Some(pos) {
+        win.set_position(pos)?;
     }
     Ok(())
+}
+
+/// Re-anchors the strip using the last known width - a monitor unplug/replug
+/// relocates it without touching CSS layout, so ResizeObserver never refires.
+pub fn reassert_strip_position(app: &AppHandle) {
+    let width_css = f64::from_bits(LAST_STRIP_WIDTH_CSS.load(Ordering::Relaxed));
+    let _ = position_strip(app, width_css);
 }
 
 #[cfg(all(test, target_os = "windows"))]

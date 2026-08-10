@@ -70,6 +70,7 @@ pub fn spawn_poller(app: AppHandle) {
                     let _ = win.show();
                 }
                 raise_topmost(&win);
+                crate::taskbar::reassert_strip_position(&app);
             }
         }
     });
