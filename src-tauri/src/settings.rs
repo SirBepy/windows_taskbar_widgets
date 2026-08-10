@@ -35,6 +35,65 @@ pub enum Placement {
     Overlay(OverlaySpec),
 }
 
+pub type InstanceId = String;
+
+// One placed copy of a widget on the strip. Distinct from a widget_id (e.g. "cpu"),
+// which now identifies the widget *kind*, not a placement - see MonitorWidgets.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct StripInstance {
+    pub instance_id: InstanceId,
+    pub widget_id: String,
+}
+
+// Keyed by monitor device name ("" = the same "whatever is primary" convention as
+// taskbar_monitor). `transparent` + `default` keep the JSON shape a plain
+// `{"monitor": [...]}` map, so a per-monitor round trip needs no wrapper object.
+#[derive(Clone, Serialize, Deserialize, Debug, Default, PartialEq)]
+#[serde(default, transparent)]
+pub struct MonitorWidgets(pub HashMap<String, Vec<StripInstance>>);
+
+impl MonitorWidgets {
+    #[allow(dead_code)]
+    pub fn monitors(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    #[allow(dead_code)]
+    pub fn instances_for(&self, monitor: &str) -> &[StripInstance] {
+        self.0.get(monitor).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    #[allow(dead_code)]
+    pub fn all(&self) -> impl Iterator<Item = &StripInstance> {
+        self.0.values().flatten()
+    }
+
+    #[allow(dead_code)]
+    pub fn monitor_of(&self, instance_id: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(_, v)| v.iter().any(|si| si.instance_id == instance_id))
+            .map(|(m, _)| m.as_str())
+    }
+
+    /// Smallest unused "<widget_id>#n" across ALL monitors. A divider already carries
+    /// a unique id (DIVIDER_PREFIX) and is returned unchanged, no "#n" suffix.
+    #[allow(dead_code)]
+    pub fn next_instance_id(&self, widget_id: &str) -> InstanceId {
+        if widget_id.starts_with(DIVIDER_PREFIX) {
+            return widget_id.to_string();
+        }
+        let mut n: u32 = 1;
+        loop {
+            let candidate = format!("{widget_id}#{n}");
+            if !self.all().any(|si| si.instance_id == candidate) {
+                return candidate;
+            }
+            n += 1;
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct Settings {
@@ -64,6 +123,12 @@ pub struct Settings {
     // One-time guard for the divider backfill in `load`; must stay false once so a
     // pre-existing settings.json (missing this key) still runs it exactly once.
     pub dividers_migrated: bool,
+    // Placed widget copies, per monitor. Instance-id-keyed; the successor to
+    // enabled_widgets, which stays around read-only until callers migrate to this.
+    pub monitor_widgets: MonitorWidgets,
+    // One-time guard for the enabled_widgets -> monitor_widgets backfill in `load`;
+    // same "stay false once" contract as dividers_migrated.
+    pub widgets_migrated_to_instances: bool,
     #[serde(flatten)]
     pub kit: KitSettings,
 }
@@ -88,6 +153,13 @@ impl Default for Settings {
             widget_config: HashMap::new(),
             widget_placement: HashMap::new(),
             dividers_migrated: false,
+            monitor_widgets: MonitorWidgets(HashMap::from([(
+                String::new(),
+                ["cpu", "ram", "gpu", "disk", "conductor"]
+                    .map(|id| StripInstance { instance_id: format!("{id}#1"), widget_id: id.to_string() })
+                    .into(),
+            )])),
+            widgets_migrated_to_instances: false,
             kit: KitSettings::default(),
         }
     }
@@ -106,6 +178,28 @@ impl Settings {
             .filter(|id| self.is_active(id))
             .filter_map(|id| match self.widget_placement.get(id) {
                 Some(Placement::Overlay(spec)) => Some((id.clone(), spec.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // Instance-id-keyed successors to is_active/overlays above. Nothing calls these
+    // yet - widget_placement/hidden_widgets are still keyed by widget_id until the
+    // callers that read them (overlay.rs, bridge_pomodoro.rs, ...) migrate in a later
+    // phase - so the old methods stay untouched under their current names.
+    #[allow(dead_code)]
+    pub fn is_active_instance(&self, instance_id: &str) -> bool {
+        self.monitor_widgets.all().any(|si| si.instance_id == instance_id)
+            && !self.hidden_widgets.iter().any(|h| h == instance_id)
+    }
+
+    #[allow(dead_code)]
+    pub fn overlays_by_instance(&self) -> Vec<(InstanceId, OverlaySpec)> {
+        self.monitor_widgets
+            .all()
+            .filter(|si| self.is_active_instance(&si.instance_id))
+            .filter_map(|si| match self.widget_placement.get(&si.instance_id) {
+                Some(Placement::Overlay(spec)) => Some((si.instance_id.clone(), spec.clone())),
                 _ => None,
             })
             .collect()
@@ -153,6 +247,43 @@ fn migrate_dividers(enabled_widgets: &mut Vec<String>) {
     *enabled_widgets = out;
 }
 
+// Backfills monitor_widgets/instance-keyed maps from the flat, pre-instance model.
+// Plain "#1" suffix, never the collision-avoiding next_instance_id - at most one of
+// each widget id can exist pre-migration, so "#1" can't collide. Dividers keep their
+// own id unchanged (same prefix rule as MonitorWidgets::next_instance_id).
+fn migrate_to_instances(settings: &mut Settings) {
+    if settings.widgets_migrated_to_instances {
+        return;
+    }
+    let monitor = settings.taskbar_monitor.clone();
+    let mut id_to_instance: HashMap<String, InstanceId> = HashMap::new();
+    let mut instances = Vec::with_capacity(settings.enabled_widgets.len());
+
+    for widget_id in &settings.enabled_widgets {
+        let instance_id = if widget_id.starts_with(DIVIDER_PREFIX) {
+            widget_id.clone()
+        } else {
+            format!("{widget_id}#1")
+        };
+        id_to_instance.insert(widget_id.clone(), instance_id.clone());
+        instances.push(StripInstance { instance_id, widget_id: widget_id.clone() });
+    }
+    settings.monitor_widgets.0.insert(monitor, instances);
+
+    let remap = |old: &str| id_to_instance.get(old).cloned().unwrap_or_else(|| format!("{old}#1"));
+    settings.hidden_widgets = settings.hidden_widgets.iter().map(|id| remap(id)).collect();
+    settings.widget_config = std::mem::take(&mut settings.widget_config)
+        .into_iter()
+        .map(|(id, v)| (remap(&id), v))
+        .collect();
+    settings.widget_placement = std::mem::take(&mut settings.widget_placement)
+        .into_iter()
+        .map(|(id, p)| (remap(&id), p))
+        .collect();
+
+    settings.widgets_migrated_to_instances = true;
+}
+
 pub fn load(path: &Path) -> Settings {
     let existed = path.exists();
     let mut settings: Settings = tauri_kit_settings::store::load(path).unwrap_or_default();
@@ -170,6 +301,16 @@ pub fn load(path: &Path) -> Settings {
             migrate_dividers(&mut settings.enabled_widgets);
         }
         settings.dividers_migrated = true;
+    }
+    // Same fresh-install-skips-it shape: Settings::default() already has the right
+    // monitor_widgets, so a fresh install just marks itself migrated without running
+    // the backfill.
+    if !settings.widgets_migrated_to_instances {
+        if existed {
+            migrate_to_instances(&mut settings);
+        } else {
+            settings.widgets_migrated_to_instances = true;
+        }
     }
     settings
 }
@@ -337,5 +478,80 @@ mod tests {
 
         assert_eq!(shape(&loaded.enabled_widgets), Settings::default().enabled_widgets);
         assert!(loaded.dividers_migrated);
+    }
+
+    // The whole migration story for instances: a settings.json written before
+    // monitor_widgets existed must load with every widget re-keyed by instance id.
+    #[test]
+    fn settings_without_monitor_widgets_migrates_enabled_widgets_to_instances() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let json = r#"{
+            "left_margin":44,
+            "enabled_widgets":["cpu","ram","conductor"],
+            "opacity":65,
+            "dividers_migrated":true,
+            "widget_config":{"cpu":{"foo":1}},
+            "widget_placement":{"ram":{"kind":"strip"}}
+        }"#;
+        std::fs::write(&path, json).unwrap();
+
+        let loaded = load(&path);
+
+        let instances = loaded.monitor_widgets.instances_for("");
+        let instance_ids: Vec<&str> = instances.iter().map(|si| si.instance_id.as_str()).collect();
+        let widget_ids: Vec<&str> = instances.iter().map(|si| si.widget_id.as_str()).collect();
+        assert_eq!(instance_ids, ["cpu#1", "ram#1", "conductor#1"]);
+        assert_eq!(widget_ids, ["cpu", "ram", "conductor"]);
+        assert_eq!(loaded.widget_config.get("cpu#1").and_then(|v| v.get("foo")), Some(&serde_json::json!(1)));
+        assert_eq!(loaded.widget_placement.get("ram#1"), Some(&Placement::Strip));
+        assert_eq!(loaded.left_margin, 44);
+        assert_eq!(loaded.opacity, 65);
+        assert_eq!(loaded.enabled_widgets, ["cpu", "ram", "conductor"]);
+        assert!(loaded.widgets_migrated_to_instances);
+    }
+
+    #[test]
+    fn next_instance_id_avoids_existing_suffixes() {
+        let empty = MonitorWidgets::default();
+        assert_eq!(empty.next_instance_id("conductor"), "conductor#1");
+
+        let taken = MonitorWidgets(HashMap::from([(
+            String::new(),
+            vec![StripInstance { instance_id: "conductor#1".into(), widget_id: "conductor".into() }],
+        )]));
+        assert_eq!(taken.next_instance_id("conductor"), "conductor#2");
+    }
+
+    #[test]
+    fn default_settings_has_matching_monitor_widgets_shape() {
+        let s = Settings::default();
+
+        let ids: Vec<&str> = s.monitor_widgets.instances_for("").iter().map(|si| si.instance_id.as_str()).collect();
+        assert_eq!(ids, ["cpu#1", "ram#1", "gpu#1", "disk#1", "conductor#1"]);
+        assert!(!s.widgets_migrated_to_instances);
+    }
+
+    #[test]
+    fn migrate_to_instances_is_idempotent() {
+        let mut s = Settings {
+            enabled_widgets: ["cpu", "ram"].map(String::from).into(),
+            widgets_migrated_to_instances: false,
+            ..Settings::default()
+        };
+
+        migrate_to_instances(&mut s);
+        let monitor_widgets = s.monitor_widgets.clone();
+        let hidden_widgets = s.hidden_widgets.clone();
+        let widget_config = s.widget_config.clone();
+        let widget_placement = s.widget_placement.clone();
+
+        migrate_to_instances(&mut s);
+
+        assert_eq!(s.monitor_widgets, monitor_widgets);
+        assert_eq!(s.hidden_widgets, hidden_widgets);
+        assert_eq!(s.widget_config, widget_config);
+        assert_eq!(s.widget_placement, widget_placement);
+        assert!(s.widgets_migrated_to_instances);
     }
 }
