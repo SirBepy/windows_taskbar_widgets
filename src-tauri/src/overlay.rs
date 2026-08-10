@@ -124,8 +124,17 @@ pub fn reconcile(app: &AppHandle) {
             Some(win) => apply_geometry(app, &win, spec),
             None => {
                 log::info!("overlay {id}: building {label}");
-                if let Err(e) = build(app, id, label, spec) {
-                    log::error!("overlay {id}: {e}");
+                // build() must run on the main thread; reconcile() is also called from
+                // save_settings (an IPC handler, off it), which silently never created the
+                // window before (todo 46). run_on_main_thread hops it over - a no-op extra
+                // tick when already on the main thread (the setup() call site).
+                let (app2, id2, label2, spec2) = (app.clone(), id.clone(), label.clone(), spec.clone());
+                if let Err(e) = app.run_on_main_thread(move || {
+                    if let Err(e) = build(&app2, &id2, &label2, &spec2) {
+                        log::error!("overlay {id2}: {e}");
+                    }
+                }) {
+                    log::error!("overlay {id}: failed to dispatch build to main thread: {e}");
                 }
             }
         }
