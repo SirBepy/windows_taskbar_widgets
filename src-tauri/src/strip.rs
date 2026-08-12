@@ -1,4 +1,5 @@
 use crate::monitor_widgets::MonitorWidgets;
+use crate::settings::SettingsState;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -10,17 +11,14 @@ pub const PRIMARY_LABEL: &str = "strip";
 
 /// Window label -> device_name, mirroring `overlay::OverlayState`.
 #[derive(Default)]
-#[allow(dead_code)]
 pub struct StripState(pub Mutex<HashMap<String, String>>);
 
-#[allow(dead_code)]
 pub fn new_state() -> StripState {
     StripState::default()
 }
 
 // Same rule as overlay.rs's label_for, copied verbatim (it's private there):
 // every non-alphanumeric char becomes '-'. Never yields the bare "strip" label.
-#[allow(dead_code)]
 pub fn label_for(device_name: &str) -> String {
     let safe: String = device_name
         .chars()
@@ -31,7 +29,6 @@ pub fn label_for(device_name: &str) -> String {
 
 /// Creates a strip window at runtime for a secondary monitor. Chrome flags mirror the
 /// static "strip" window declared in tauri.conf.json exactly.
-#[allow(dead_code)]
 pub fn build(app: &AppHandle, device_name: &str, label: &str) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("Widgets")
@@ -55,7 +52,6 @@ pub fn build(app: &AppHandle, device_name: &str, label: &str) -> tauri::Result<(
 /// `strip` label regardless of instances (zero change for single-monitor); every other
 /// live monitor maps to `label_for(device)` only if it has instances. A `monitor_widgets`
 /// key with no matching live monitor is never visited, so it produces no label.
-#[allow(dead_code)]
 pub fn wanted_strip_labels(widgets: &MonitorWidgets, live_monitors: &[(String, bool)]) -> Vec<String> {
     live_monitors
         .iter()
@@ -69,6 +65,71 @@ pub fn wanted_strip_labels(widgets: &MonitorWidgets, live_monitors: &[(String, b
             }
         })
         .collect()
+}
+
+/// Live monitor (name, is_primary) pairs for `wanted_strip_labels`. Kept local to
+/// this module: `taskbar::monitors` builds the same shape for a different purpose
+/// (`resolve_live_monitor_key`) and isn't touched by this step.
+fn live_monitors(app: &AppHandle) -> Vec<(String, bool)> {
+    let Ok(monitors) = app.available_monitors() else { return Vec::new() };
+    let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
+    monitors
+        .into_iter()
+        .filter_map(|m| m.name().cloned())
+        .map(|name| {
+            let is_primary = Some(&name) == primary_name.as_ref();
+            (name, is_primary)
+        })
+        .collect()
+}
+
+/// Creates and closes strip windows so the live set matches `wanted_strip_labels`.
+/// Mirrors `overlay::reconcile`. `PRIMARY_LABEL` never starts with `LABEL_PREFIX` so
+/// the close loop already excludes it by construction; the explicit check below is
+/// belt-and-braces since closing the static `strip` window would break single-instance.
+pub fn reconcile(app: &AppHandle) {
+    let widgets = match app.state::<SettingsState>().0.lock() {
+        Ok(s) => s.monitor_widgets.clone(),
+        Err(e) => {
+            log::error!("strip reconcile skipped, settings lock poisoned: {e}");
+            return;
+        }
+    };
+    let live = live_monitors(app);
+    let wanted = wanted_strip_labels(&widgets, &live);
+    log::info!("strip reconcile: {} wanted", wanted.len());
+
+    for (label, win) in app.webview_windows() {
+        if label != PRIMARY_LABEL && label.starts_with(LABEL_PREFIX) && !wanted.contains(&label) {
+            let _ = win.close();
+            if let Ok(mut map) = app.state::<StripState>().0.lock() {
+                map.remove(&label);
+            }
+        }
+    }
+
+    for label in &wanted {
+        if label == PRIMARY_LABEL || app.get_webview_window(label).is_some() {
+            continue;
+        }
+        let Some(device_name) =
+            live.iter().find(|(name, _)| &label_for(name) == label).map(|(name, _)| name.clone())
+        else {
+            continue;
+        };
+        log::info!("strip {device_name}: building {label}");
+        // build() must run on the main thread; reconcile() is also called from
+        // save_settings (an IPC handler, off it) - same run_on_main_thread hop
+        // overlay::reconcile uses for the identical reason.
+        let (app2, device2, label2) = (app.clone(), device_name.clone(), label.clone());
+        if let Err(e) = app.run_on_main_thread(move || {
+            if let Err(e) = build(&app2, &device2, &label2) {
+                log::error!("strip {device2}: {e}");
+            }
+        }) {
+            log::error!("strip {device_name}: failed to dispatch build to main thread: {e}");
+        }
+    }
 }
 
 #[cfg(test)]

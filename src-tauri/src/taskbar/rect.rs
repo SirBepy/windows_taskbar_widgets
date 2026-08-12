@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::{AppHandle, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize};
 
 #[cfg(target_os = "windows")]
-use super::monitors::selected_taskbar;
+use super::monitors::{enumerate_taskbars, selected_taskbar, DetectedTaskbar};
 
 // Cached for reassert_strip_position to redo layout without a fresh JS width.
 static LAST_STRIP_WIDTH_CSS: AtomicU64 = AtomicU64::new(320.0f64.to_bits());
@@ -145,37 +145,52 @@ pub fn window_and_monitor_rect(
     }
 }
 
+/// True when `taskbar`'s live window is off screen - pure, no fresh Win32
+/// enumeration beyond IsWindowVisible. A caller already holding a `DetectedTaskbar`
+/// from one `enumerate_taskbars()` pass can call this per-strip without re-enumerating.
+#[cfg(target_os = "windows")]
+pub fn taskbar_hidden_for(taskbar: &DetectedTaskbar) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+    unsafe {
+        if IsWindowVisible(taskbar.hwnd as _) == 0 {
+            return true;
+        }
+    }
+    rect_mostly_off_monitor(taskbar.taskbar_rect, taskbar.monitor_rect)
+}
+
 /// True when the chosen taskbar is not on screen right now. Deliberately checks the
 /// LIVE window, not ABM_GETSTATE's auto-hide flag: that flag reports the mode, so it
 /// stays set while the user hovers and the taskbar is actually slid in and visible.
 #[cfg(target_os = "windows")]
 pub fn taskbar_hidden(app: &AppHandle) -> bool {
     use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTONEAREST;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible};
+    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
 
-    // Explorer restarting destroys and recreates the tray window; re-finding it fresh
-    // every call (FindWindowW, or the EnumWindows behind selected_taskbar) is what
-    // lets the strip come back on its own afterwards.
-    let hwnd = match selected_taskbar(app) {
-        Some(t) if !t.is_primary => t.hwnd as _,
-        _ => unsafe {
-            let class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
-            FindWindowW(class.as_ptr(), std::ptr::null())
-        },
-    };
-
-    unsafe {
-        if hwnd.is_null() || IsWindowVisible(hwnd) == 0 {
-            return true;
+    if let Some(t) = selected_taskbar(app) {
+        if !t.is_primary {
+            return taskbar_hidden_for(&t);
         }
-        let Some(wm) = window_and_monitor_rect(hwnd, MONITOR_DEFAULTTONEAREST) else {
-            return false;
-        };
-        rect_mostly_off_monitor(
-            (wm.window.left, wm.window.top, wm.window.right, wm.window.bottom),
-            (wm.monitor.left, wm.monitor.top, wm.monitor.right, wm.monitor.bottom),
-        )
     }
+    // Explorer restarting destroys and recreates the tray window; re-finding it fresh
+    // every call is what lets the primary strip come back on its own afterwards.
+    let hwnd = unsafe {
+        let class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
+        FindWindowW(class.as_ptr(), std::ptr::null())
+    };
+    if hwnd.is_null() {
+        return true;
+    }
+    let Some(wm) = window_and_monitor_rect(hwnd, MONITOR_DEFAULTTONEAREST) else {
+        return false;
+    };
+    taskbar_hidden_for(&DetectedTaskbar {
+        hwnd: hwnd as isize,
+        device_name: wm.device_name,
+        is_primary: wm.is_primary,
+        taskbar_rect: (wm.window.left, wm.window.top, wm.window.right, wm.window.bottom),
+        monitor_rect: (wm.monitor.left, wm.monitor.top, wm.monitor.right, wm.monitor.bottom),
+    })
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -183,25 +198,50 @@ pub fn taskbar_hidden(_app: &AppHandle) -> bool {
     false
 }
 
+/// Rect of the taskbar `window` should dock to. The primary strip resolves the
+/// user's `taskbar_monitor` choice via `taskbar_rect`; every other strip is pinned
+/// unconditionally to its own monitor via `StripState` - no user choice, it is
+/// pinned there by construction (Decision, per-monitor-phase2-plan.md).
+#[cfg(target_os = "windows")]
+fn taskbar_rect_for_window(app: &AppHandle, window: &tauri::Window) -> Option<(i32, i32, i32, i32)> {
+    if window.label() == crate::strip::PRIMARY_LABEL {
+        return taskbar_rect(app);
+    }
+    let device_name =
+        app.state::<crate::strip::StripState>().0.lock().ok()?.get(window.label()).cloned()?;
+    let t = enumerate_taskbars().into_iter().find(|t| t.device_name == device_name)?;
+    if t.is_primary {
+        primary_taskbar_rect()
+    } else {
+        Some(docked_secondary_rect(t.taskbar_rect, t.monitor_rect))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn taskbar_rect_for_window(_app: &AppHandle, _window: &tauri::Window) -> Option<(i32, i32, i32, i32)> {
+    None
+}
+
 /// Left-anchor the strip over the taskbar's empty left region (Win11 centers
 /// pinned icons, so the left edge is free). Falls back to bottom-left of the
-/// work area when the taskbar rect is unavailable.
-pub fn position_strip(app: &AppHandle, strip_css_width: f64) -> tauri::Result<()> {
-    use tauri::Manager;
-    let Some(win) = app.get_webview_window("strip") else {
-        return Ok(());
-    };
-    LAST_STRIP_WIDTH_CSS.store(strip_css_width.to_bits(), Ordering::Relaxed);
-    let scale = win.scale_factor().unwrap_or(1.0);
+/// work area when the taskbar rect is unavailable. `window` is whichever strip
+/// (primary or a runtime secondary) is being positioned.
+pub fn position_strip(app: &AppHandle, window: &tauri::Window, strip_css_width: f64) -> tauri::Result<()> {
+    // Only the primary's width feeds reassert_strip_position's cache: a secondary
+    // strip overwriting it would misposition the primary on the next reassert.
+    if window.label() == crate::strip::PRIMARY_LABEL {
+        LAST_STRIP_WIDTH_CSS.store(strip_css_width.to_bits(), Ordering::Relaxed);
+    }
+    let scale = window.scale_factor().unwrap_or(1.0);
     let settings = app.state::<crate::settings::SettingsState>();
     let left_margin = settings.0.lock().map(|s| s.left_margin).unwrap_or(12) as f64;
 
     let w = (strip_css_width * scale).round() as u32;
-    let (size, pos) = if let Some((left, top, _, bottom)) = taskbar_rect(app) {
+    let (size, pos) = if let Some((left, top, _, bottom)) = taskbar_rect_for_window(app, window) {
         let h = (bottom - top).max(1) as u32;
         let x = left + (left_margin * scale).round() as i32;
         (PhysicalSize::new(w.max(1), h), PhysicalPosition::new(x, top))
-    } else if let Ok(Some(monitor)) = win.primary_monitor() {
+    } else if let Ok(Some(monitor)) = window.primary_monitor() {
         let h = (48.0 * scale).round() as u32;
         let wa = monitor.work_area();
         let x = wa.position.x + (left_margin * scale) as i32;
@@ -211,11 +251,11 @@ pub fn position_strip(app: &AppHandle, strip_css_width: f64) -> tauri::Result<()
         return Ok(());
     };
     // Skip no-op Win32 calls: this runs 4x/sec from autohide's poller.
-    if win.outer_size().ok() != Some(size) {
-        win.set_size(size)?;
+    if window.outer_size().ok() != Some(size) {
+        window.set_size(size)?;
     }
-    if win.outer_position().ok() != Some(pos) {
-        win.set_position(pos)?;
+    if window.outer_position().ok() != Some(pos) {
+        window.set_position(pos)?;
     }
     Ok(())
 }
@@ -224,7 +264,10 @@ pub fn position_strip(app: &AppHandle, strip_css_width: f64) -> tauri::Result<()
 /// relocates it without touching CSS layout, so ResizeObserver never refires.
 pub fn reassert_strip_position(app: &AppHandle) {
     let width_css = f64::from_bits(LAST_STRIP_WIDTH_CSS.load(Ordering::Relaxed));
-    let _ = position_strip(app, width_css);
+    if let Some(win) = app.get_webview_window(crate::strip::PRIMARY_LABEL) {
+        let window = win.as_ref().window();
+        let _ = position_strip(app, &window, width_css);
+    }
 }
 
 #[cfg(all(test, target_os = "windows"))]
@@ -232,6 +275,20 @@ mod tests {
     use super::*;
 
     const MONITOR: (i32, i32, i32, i32) = (0, 0, 2560, 1440);
+
+    #[test]
+    fn taskbar_hidden_for_treats_invalid_hwnd_as_hidden() {
+        // hwnd 0 is never a valid window, so IsWindowVisible short-circuits before the
+        // rect comparison. It's the only branch testable without a real live HWND.
+        let t = DetectedTaskbar {
+            hwnd: 0,
+            device_name: r"\\.\DISPLAY1".to_string(),
+            is_primary: true,
+            taskbar_rect: (0, 1400, 2560, 1440),
+            monitor_rect: MONITOR,
+        };
+        assert!(taskbar_hidden_for(&t));
+    }
 
     #[test]
     fn bottom_docked_rect_is_returned_unchanged() {

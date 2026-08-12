@@ -56,6 +56,7 @@ fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     // (e.g. cpu/gpu show_temp), so it needs this too, not just the strip.
     let _ = app.emit("widgets-changed", ());
     overlay::reconcile(&app);
+    strip::reconcile(&app);
     // Resent unconditionally, same as overlay::reconcile above: cheap, and it
     // covers pomodoro enable/disable and placement changes alike.
     bridge_pomodoro::send_host_overlay(&app);
@@ -81,9 +82,10 @@ fn get_version_info() -> VersionInfo {
 }
 
 /// The strip hugs its content: JS reports the row's CSS width after each render.
+/// `window` is whichever strip invoked this - Tauri injects the calling window.
 #[tauri::command]
-fn set_strip_width(app: AppHandle, width_css: f64) -> Result<(), String> {
-    taskbar::position_strip(&app, width_css.max(1.0)).map_err(|e| e.to_string())
+fn set_strip_width(app: AppHandle, window: tauri::Window, width_css: f64) -> Result<(), String> {
+    taskbar::position_strip(&app, &window, width_css.max(1.0)).map_err(|e| e.to_string())
 }
 
 /// Webview consoles aren't visible in supervised dev runs; both pages forward
@@ -102,7 +104,11 @@ fn log_js(level: String, msg: String) {
 // otherwise leak into a capture with hide_from_capture on.
 fn apply_capture_exclusion(app: &AppHandle, excluded: bool) {
     for (label, w) in app.webview_windows() {
-        if label == "strip" || label == "flyout" || label.starts_with(overlay::LABEL_PREFIX) {
+        if label == "strip"
+            || label == "flyout"
+            || label.starts_with(overlay::LABEL_PREFIX)
+            || label.starts_with(strip::LABEL_PREFIX)
+        {
             let _ = tauri_kit_window::exclude_from_capture(&w, excluded);
         }
     }
@@ -211,11 +217,13 @@ pub fn run() {
                 .unwrap_or_else(|poisoned| poisoned.into_inner().hide_from_capture);
             apply_capture_exclusion(&handle, hide_from_capture);
 
-            let _ = taskbar::position_strip(&handle, 320.0);
-            if let Some(win) = handle.get_webview_window("strip") {
+            if let Some(win) = handle.get_webview_window(strip::PRIMARY_LABEL) {
+                let window = win.as_ref().window();
+                let _ = taskbar::position_strip(&handle, &window, 320.0);
                 let _ = win.show();
             }
             overlay::reconcile(&handle);
+            strip::reconcile(&handle);
             system_stats::spawn_poller(handle.clone());
             autohide::spawn_poller(handle.clone());
             bridge_conductor::spawn(handle.clone());
