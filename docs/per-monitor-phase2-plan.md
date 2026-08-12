@@ -155,3 +155,16 @@ Each leaves `cargo check` and `cargo test` green on its own.
 - Flyout re-anchor feel across two physical monitors: `HOVER_PAD_PX`/`COLD_CLOSE_MS` were tuned for
   one strip+flyout pair at short pixel distances.
 - CPU/RAM cost of N strips plus the shared poller.
+- **A monitor with no taskbar at all.** Step 5's `strip_should_hide` treats "no taskbar found for
+  this device" as hidden, which matches what the old `taskbar_hidden` did when `FindWindowW` came
+  back null. But with Windows' "show my taskbar on all displays" turned OFF, a secondary strip would
+  be permanently hidden while `position_strip` would still happily place it against the work area.
+  The two disagree. Nobody hits it with taskbars on every display, which is the feature's premise,
+  so it is not worth pre-solving, but confirm the behaviour and decide then: either hide (current) or
+  fall back to the work area in both paths.
+- **`foreground_fullscreen`'s narrowed `SHQueryUserNotificationState` branch.** Step 5 made that
+  branch require a resolvable, non-`Progman`/`WorkerW` foreground window, because it now has to
+  attribute a device name to decide WHICH strip hides. Previously it could fire regardless of the
+  foreground window's class. Narrow edge case (system reports presentation/D3D/busy while the desktop
+  is somehow foreground), but it is a real behaviour change: verify a real fullscreen game and a
+  real presentation-mode app both still hide the strip on that monitor.

@@ -50,7 +50,8 @@ pub struct Settings {
     // 0-100, base opacity for all tiles/flyouts; hover always shows fully opaque.
     pub opacity: u32,
     // true: strip hides when the taskbar does. false: strip stays visible regardless.
-    // Fullscreen still hides the strip in both modes; this only gates taskbar_hidden().
+    // Fullscreen still hides the strip in both modes; this only gates the taskbar check
+    // in autohide.rs's strip_should_hide().
     pub follow_taskbar: bool,
     // Opt-in only: excludes strip+flyout from screen capture, but also from the
     // user's own screenshots, so it must never default true.

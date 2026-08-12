@@ -9,7 +9,7 @@ static LAST_STRIP_WIDTH_CSS: AtomicU64 = AtomicU64::new(320.0f64.to_bits());
 
 /// Primary-taskbar rect in physical px via SHAppBarMessage; None off-Windows or if the
 /// call fails. ABM_GETTASKBARPOS reports the docked position even while auto-hidden,
-/// which is exactly why `taskbar_hidden` below deliberately does NOT use this API.
+/// which is exactly why `taskbar_hidden_for` below deliberately does NOT use this API.
 #[cfg(target_os = "windows")]
 fn primary_taskbar_rect() -> Option<(i32, i32, i32, i32)> {
     use windows_sys::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
@@ -58,7 +58,7 @@ pub fn selected_monitor_rect(_app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
 const SLIVER_PX: i32 = 8;
 
 /// True when `rc` overlaps `monitor` by less than SLIVER_PX on either axis - the
-/// slid-off-screen state of an auto-hidden taskbar. Shared by `taskbar_hidden`
+/// slid-off-screen state of an auto-hidden taskbar. Shared by `taskbar_hidden_for`
 /// and `docked_secondary_rect` so there is one definition of "hidden".
 #[cfg(target_os = "windows")]
 fn rect_mostly_off_monitor(rc: (i32, i32, i32, i32), monitor: (i32, i32, i32, i32)) -> bool {
@@ -157,45 +157,6 @@ pub fn taskbar_hidden_for(taskbar: &DetectedTaskbar) -> bool {
         }
     }
     rect_mostly_off_monitor(taskbar.taskbar_rect, taskbar.monitor_rect)
-}
-
-/// True when the chosen taskbar is not on screen right now. Deliberately checks the
-/// LIVE window, not ABM_GETSTATE's auto-hide flag: that flag reports the mode, so it
-/// stays set while the user hovers and the taskbar is actually slid in and visible.
-#[cfg(target_os = "windows")]
-pub fn taskbar_hidden(app: &AppHandle) -> bool {
-    use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTONEAREST;
-    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
-
-    if let Some(t) = selected_taskbar(app) {
-        if !t.is_primary {
-            return taskbar_hidden_for(&t);
-        }
-    }
-    // Explorer restarting destroys and recreates the tray window; re-finding it fresh
-    // every call is what lets the primary strip come back on its own afterwards.
-    let hwnd = unsafe {
-        let class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
-        FindWindowW(class.as_ptr(), std::ptr::null())
-    };
-    if hwnd.is_null() {
-        return true;
-    }
-    let Some(wm) = window_and_monitor_rect(hwnd, MONITOR_DEFAULTTONEAREST) else {
-        return false;
-    };
-    taskbar_hidden_for(&DetectedTaskbar {
-        hwnd: hwnd as isize,
-        device_name: wm.device_name,
-        is_primary: wm.is_primary,
-        taskbar_rect: (wm.window.left, wm.window.top, wm.window.right, wm.window.bottom),
-        monitor_rect: (wm.monitor.left, wm.monitor.top, wm.monitor.right, wm.monitor.bottom),
-    })
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn taskbar_hidden(_app: &AppHandle) -> bool {
-    false
 }
 
 /// Rect of the taskbar `window` should dock to. The primary strip resolves the
