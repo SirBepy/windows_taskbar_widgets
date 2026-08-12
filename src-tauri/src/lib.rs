@@ -37,10 +37,15 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 // Param named `settings` (not `new_settings`): the kit's renderer.ts hardcodes
 // `invoke(saveCmd, { settings: current })`, so this name is the IPC contract.
 #[tauri::command]
-fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
-    self::settings::persist(&app, &settings)?;
-    apply_capture_exclusion(&app, settings.hide_from_capture);
+fn save_settings(app: AppHandle, mut settings: Settings) -> Result<(), String> {
     let state = app.state::<SettingsState>();
+    // Bug-2 fix: a kind just re-added to enabled_widgets (settings UI) must have
+    // BOTH hidden_widgets shapes cleared, or an orphaned "<kind>#n" from a prior
+    // tile-menu hide keeps it invisible forever. Diffed against the pre-save state.
+    let previously_enabled = state.0.lock().map(|s| s.enabled_widgets.clone()).unwrap_or_default();
+    settings.clear_hidden_for_reenabled_widgets(&previously_enabled);
+    self::settings::persist(&app, &mut settings)?;
+    apply_capture_exclusion(&app, settings.hide_from_capture);
     // A silent skip here persists the file but leaves memory stale, so every reader
     // after it (overlay::reconcile especially) acts on the pre-save settings. Recover
     // via into_inner() instead: the mutex stays poisoned forever otherwise, so a

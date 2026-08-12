@@ -106,7 +106,7 @@ fn hide_widget(app: &AppHandle, instance_id: &str) {
         let state = app.state::<SettingsState>();
         let Ok(mut s) = state.0.lock() else { return };
         let monitor = apply_hide(&mut s, instance_id);
-        let _ = settings::persist(app, &s);
+        let _ = settings::persist(app, &mut s);
         strip::label_for_monitor(app, &monitor.unwrap_or_default())
     };
     let _ = app.emit_to(target.as_str(), "widgets-changed", ());
@@ -134,7 +134,7 @@ fn remove_divider(app: &AppHandle, instance_id: &str) {
         let state = app.state::<SettingsState>();
         let Ok(mut s) = state.0.lock() else { return };
         let monitor = apply_remove_divider(&mut s, instance_id);
-        let _ = settings::persist(app, &s);
+        let _ = settings::persist(app, &mut s);
         strip::label_for_monitor(app, &monitor.unwrap_or_default())
     };
     let _ = app.emit_to(target.as_str(), "widgets-changed", ());
@@ -173,7 +173,7 @@ fn move_widget(app: &AppHandle, instance_id: &str, dir: i32) {
         let state = app.state::<SettingsState>();
         let Ok(mut s) = state.0.lock() else { return };
         let monitor = apply_move(&mut s, instance_id, dir);
-        let _ = settings::persist(app, &s);
+        let _ = settings::persist(app, &mut s);
         strip::label_for_monitor(app, &monitor.unwrap_or_default())
     };
     let _ = app.emit_to(target.as_str(), "widgets-changed", ());
@@ -379,7 +379,7 @@ pub fn reorder_widgets(app: AppHandle, order: Vec<String>) -> Result<(), String>
         }
     }
     s.enabled_widgets = new_order;
-    settings::persist(&app, &s)
+    settings::persist(&app, &mut s)
 }
 
 #[cfg(test)]

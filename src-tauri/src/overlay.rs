@@ -162,7 +162,7 @@ pub fn save_overlay_geometry(
     h: f64,
     monitor: String,
 ) -> Result<(), String> {
-    let settings = {
+    let mut settings = {
         let state = app.state::<SettingsState>();
         let mut s = state.0.lock().map_err(|e| e.to_string())?;
         let opacity = match s.widget_placement.get(&id) {
@@ -175,7 +175,7 @@ pub fn save_overlay_geometry(
         );
         s.clone()
     };
-    crate::settings::persist(&app, &settings)
+    crate::settings::persist(&app, &mut settings)
 }
 
 /// Origin, size and scale of a monitor, so the frontend can turn a physical window

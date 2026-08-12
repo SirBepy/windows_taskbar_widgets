@@ -144,6 +144,45 @@ impl Settings {
                 && !self.hidden_widgets.iter().any(|h| h == &si.instance_id || h == widget_id)
         })
     }
+
+    /// Additive self-heal: any enabled_widgets id with no StripInstance anywhere in
+    /// monitor_widgets (e.g. a registry widget adopted post-first-run, see main.ts's
+    /// newIds backfill) gets one in the primary "" lane. Never removes an instance -
+    /// one can legitimately live on a monitor lane whose kind isn't in enabled_widgets.
+    pub fn ensure_instances(&mut self) {
+        for widget_id in self.enabled_widgets.clone() {
+            if self.monitor_widgets.all().any(|si| si.widget_id == widget_id) {
+                continue;
+            }
+            let instance_id = self.monitor_widgets.next_instance_id(&widget_id);
+            self.monitor_widgets.0.entry(String::new()).or_default().push(StripInstance {
+                instance_id,
+                widget_id,
+            });
+        }
+    }
+
+    /// A kind re-added to enabled_widgets must clear BOTH hidden_widgets shapes:
+    /// apply_hide's bare-kind entry AND any orphaned "<kind>#n" it leaves behind,
+    /// which removeId's bare-kind-only removal never touches. Scoped to just-
+    /// reintroduced kinds so an untouched kind's per-instance hide stays intact.
+    pub fn clear_hidden_for_reenabled_widgets(&mut self, previously_enabled: &[String]) {
+        let reintroduced: Vec<&str> = self
+            .enabled_widgets
+            .iter()
+            .filter(|id| !previously_enabled.contains(id))
+            .map(String::as_str)
+            .collect();
+        if reintroduced.is_empty() {
+            return;
+        }
+        let instances: Vec<StripInstance> = self.monitor_widgets.all().cloned().collect();
+        self.hidden_widgets.retain(|h| {
+            !reintroduced.iter().any(|kind| {
+                h == kind || instances.iter().any(|si| &si.instance_id == h && &si.widget_id == *kind)
+            })
+        });
+    }
 }
 
 pub struct SettingsState(pub Mutex<Settings>);
@@ -252,10 +291,13 @@ pub fn load(path: &Path) -> Settings {
             settings.widgets_migrated_to_instances = true;
         }
     }
+    // Repairs an existing install with no waiting on a save: same self-heal persist() runs.
+    settings.ensure_instances();
     settings
 }
 
-pub fn persist(app: &AppHandle, settings: &Settings) -> Result<(), String> {
+pub fn persist(app: &AppHandle, settings: &mut Settings) -> Result<(), String> {
+    settings.ensure_instances();
     tauri_kit_settings::save_for(app, SETTINGS_FILENAME, settings).map_err(|e| e.to_string())
 }
 
@@ -505,5 +547,105 @@ mod tests {
         assert_eq!(s.widget_config, widget_config);
         assert_eq!(s.widget_placement, widget_placement);
         assert!(s.widgets_migrated_to_instances);
+    }
+
+    // Bug 1: pomodoro/spotify are shipped registry widgets not in Settings::default's
+    // monitor_widgets; main.ts adopts them into enabled_widgets via reorder_widgets,
+    // which only ever wrote enabled_widgets.
+    #[test]
+    fn ensure_instances_adds_a_missing_instance_to_the_primary_lane_with_a_non_colliding_id() {
+        let mut s = Settings { enabled_widgets: vec!["cpu".to_string(), "pomodoro".to_string()], ..Settings::default() };
+
+        s.ensure_instances();
+
+        let primary = s.monitor_widgets.instances_for("");
+        assert!(primary.iter().any(|si| si.instance_id == "pomodoro#1" && si.widget_id == "pomodoro"));
+        // cpu already had "cpu#1" from Settings::default(); no second instance appears.
+        assert_eq!(primary.iter().filter(|si| si.widget_id == "cpu").count(), 1);
+    }
+
+    #[test]
+    fn ensure_instances_skips_a_kind_whose_instance_lives_on_another_monitor() {
+        let mut s = Settings::default();
+        s.monitor_widgets.0.insert(
+            r"\\.\DISPLAY2".to_string(),
+            vec![StripInstance { instance_id: "pomodoro#1".into(), widget_id: "pomodoro".into() }],
+        );
+        s.enabled_widgets.push("pomodoro".to_string());
+
+        s.ensure_instances();
+
+        assert!(s.monitor_widgets.instances_for("").iter().all(|si| si.widget_id != "pomodoro"));
+        assert_eq!(s.monitor_widgets.all().filter(|si| si.widget_id == "pomodoro").count(), 1);
+    }
+
+    #[test]
+    fn ensure_instances_is_idempotent() {
+        let mut s = Settings { enabled_widgets: vec!["cpu".to_string(), "pomodoro".to_string()], ..Settings::default() };
+        s.ensure_instances();
+        let after_first = s.monitor_widgets.clone();
+
+        s.ensure_instances();
+
+        assert_eq!(s.monitor_widgets, after_first);
+    }
+
+    #[test]
+    fn ensure_instances_never_removes_an_instance_absent_from_enabled_widgets() {
+        let mut s = Settings { enabled_widgets: vec!["cpu".to_string()], ..Settings::default() };
+        s.monitor_widgets.0.insert(
+            r"\\.\DISPLAY2".to_string(),
+            vec![StripInstance { instance_id: "gpu#2".into(), widget_id: "gpu".into() }],
+        );
+
+        s.ensure_instances();
+
+        assert!(s.monitor_widgets.all().any(|si| si.instance_id == "gpu#2"));
+    }
+
+    // Bug 2 regression: apply_hide (tile_menu.rs) orphans "cpu#1" in hidden_widgets
+    // once no visible sibling remains; a settings-UI re-add only ever removed the
+    // bare kind, leaving "cpu#1" behind and is_active permanently false.
+    #[test]
+    fn reenabling_a_widget_clears_its_orphaned_instance_hide() {
+        let mut s = Settings::default();
+        s.hidden_widgets = vec!["cpu#1".to_string(), "cpu".to_string()];
+        s.enabled_widgets.retain(|w| w != "cpu"); // mirrors apply_hide's enabled_widgets mutation
+
+        // save_settings diffs against the state as it was persisted just before this
+        // save, i.e. still missing "cpu".
+        let previously_enabled = s.enabled_widgets.clone();
+
+        // Settings UI re-add: "cpu" comes back into enabled_widgets, bare kind
+        // removed from hidden_widgets (mirrors onStripDrop's removeId), but the
+        // per-instance "cpu#1" entry is left in, same as the real bug.
+        s.enabled_widgets.push("cpu".to_string());
+        s.hidden_widgets.retain(|h| h != "cpu");
+        assert!(!s.is_active("cpu#1"), "sanity: orphaned instance id still hides it");
+
+        s.clear_hidden_for_reenabled_widgets(&previously_enabled);
+
+        assert!(s.is_active("cpu#1"));
+    }
+
+    #[test]
+    fn clear_hidden_for_reenabled_widgets_leaves_an_untouched_kinds_instance_hide_alone() {
+        let mut s = two_monitor_settings_for_hidden_test();
+        let previously_enabled = s.enabled_widgets.clone();
+        s.hidden_widgets = vec!["cpu#1".to_string()];
+        s.enabled_widgets.push("pomodoro".to_string());
+
+        s.clear_hidden_for_reenabled_widgets(&previously_enabled);
+
+        assert!(s.hidden_widgets.contains(&"cpu#1".to_string()));
+    }
+
+    fn two_monitor_settings_for_hidden_test() -> Settings {
+        let mut s = Settings::default();
+        s.monitor_widgets.0.insert(
+            r"\\.\DISPLAY2".to_string(),
+            vec![StripInstance { instance_id: "cpu#2".into(), widget_id: "cpu".into() }],
+        );
+        s
     }
 }
