@@ -26,17 +26,14 @@ impl MonitorWidgets {
         self.0.keys()
     }
 
-    #[allow(dead_code)]
     pub fn instances_for(&self, monitor: &str) -> &[StripInstance] {
         self.0.get(monitor).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
-    #[allow(dead_code)]
     pub fn all(&self) -> impl Iterator<Item = &StripInstance> {
         self.0.values().flatten()
     }
 
-    #[allow(dead_code)]
     pub fn monitor_of(&self, instance_id: &str) -> Option<&str> {
         self.0
             .iter()

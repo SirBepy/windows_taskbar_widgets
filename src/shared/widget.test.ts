@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fmtClock,
+  instanceIdFor,
   overlayDims,
   overlayRenderer,
   placementOf,
@@ -44,6 +45,24 @@ describe("stripTileIds", () => {
     } as unknown as Settings;
 
     expect(stripTileIds(["cpu", "ram"], settings)).toEqual(["ram"]);
+  });
+});
+
+describe("instanceIdFor", () => {
+  it("finds the instance placing a widget id, searching every monitor's lane", () => {
+    const settings = {
+      monitor_widgets: {
+        "": [{ instance_id: "ram#1", widget_id: "ram" }],
+        DISPLAY2: [{ instance_id: "cpu#2", widget_id: "cpu" }],
+      },
+    } as unknown as Settings;
+
+    expect(instanceIdFor(settings, "cpu")).toBe("cpu#2");
+  });
+
+  it("falls back to a #1 suffix when monitor_widgets has no match", () => {
+    expect(instanceIdFor(null, "cpu")).toBe("cpu#1");
+    expect(instanceIdFor({ monitor_widgets: {} } as unknown as Settings, "cpu")).toBe("cpu#1");
   });
 });
 

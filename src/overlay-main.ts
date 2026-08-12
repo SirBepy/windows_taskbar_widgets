@@ -7,6 +7,7 @@ import { widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
 import {
   applyOpacity,
+  instanceIdFor,
   overlayDims,
   overlayRenderer,
   placementOf,
@@ -128,10 +129,13 @@ async function main(): Promise<void> {
 
   root.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    invoke("show_tile_menu", {
-      widgetId: widget.id,
-      items: widget.menuItems?.() ?? [],
-    }).catch(() => {});
+    void (async () => {
+      const settings = await invoke<Settings>("get_settings").catch(() => null);
+      invoke("show_tile_menu", {
+        instanceId: instanceIdFor(settings, widget.id),
+        items: widget.menuItems?.() ?? [],
+      }).catch(() => {});
+    })();
   });
 
   void win.onMoved(schedulePersist);

@@ -48,6 +48,24 @@ pub fn build(app: &AppHandle, device_name: &str, label: &str) -> tauri::Result<(
     Ok(())
 }
 
+/// Pure: which window label a monitor's content shows on. Mirrors
+/// `wanted_strip_labels`'s primary rule exactly (empty key, or a device name that
+/// happens to be the live primary, both mean the bare label) so the two can never
+/// disagree about which window a given device's widgets land in.
+pub fn resolve_label_for_monitor(monitor: &str, primary_name: Option<&str>) -> String {
+    if monitor.is_empty() || Some(monitor) == primary_name {
+        PRIMARY_LABEL.to_string()
+    } else {
+        label_for(monitor)
+    }
+}
+
+/// `resolve_label_for_monitor` with the live primary looked up from the AppHandle.
+pub fn label_for_monitor(app: &AppHandle, monitor: &str) -> String {
+    let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
+    resolve_label_for_monitor(monitor, primary_name.as_deref())
+}
+
 /// Wanted strip labels for the live monitor set. The primary always maps to the bare
 /// `strip` label regardless of instances (zero change for single-monitor); every other
 /// live monitor maps to `label_for(device)` only if it has instances. A `monitor_widgets`
@@ -178,6 +196,22 @@ mod tests {
         let widgets = MonitorWidgets::default();
         let live = [(r"\\.\DISPLAY1".to_string(), true), (r"\\.\DISPLAY2".to_string(), false)];
         assert_eq!(wanted_strip_labels(&widgets, &live), vec![PRIMARY_LABEL.to_string()]);
+    }
+
+    #[test]
+    fn resolve_label_for_monitor_empty_key_is_primary() {
+        assert_eq!(resolve_label_for_monitor("", Some(r"\\.\DISPLAY1")), PRIMARY_LABEL);
+    }
+
+    #[test]
+    fn resolve_label_for_monitor_matching_live_primary_is_bare_label() {
+        assert_eq!(resolve_label_for_monitor(r"\\.\DISPLAY2", Some(r"\\.\DISPLAY2")), PRIMARY_LABEL);
+    }
+
+    #[test]
+    fn resolve_label_for_monitor_secondary_device_gets_label_for() {
+        let got = resolve_label_for_monitor(r"\\.\DISPLAY2", Some(r"\\.\DISPLAY1"));
+        assert_eq!(got, label_for(r"\\.\DISPLAY2"));
     }
 
     #[test]

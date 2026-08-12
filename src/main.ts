@@ -6,6 +6,7 @@ import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
 import {
   applyOpacity,
+  instanceIdFor,
   Settings,
   stripNeedsRemount,
   stripTileIds,
@@ -74,11 +75,11 @@ function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
   };
 }
 
-function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget) {
+function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget, settings: Settings | null) {
   tile.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     invoke("show_tile_menu", {
-      widgetId: widget.id,
+      instanceId: instanceIdFor(settings, widget.id),
       items: widget.menuItems?.() ?? [],
     }).catch(() => {});
   });
@@ -99,7 +100,7 @@ function renderTiles(ids: string[], settings: Settings | null) {
     row.appendChild(tile);
     tileCleanups.push(widget.mountTile(tile));
     tileCleanups.push(wireFlyoutHover(tile, widget));
-    wireContextMenu(tile, widget);
+    wireContextMenu(tile, widget, settings);
   }
 }
 

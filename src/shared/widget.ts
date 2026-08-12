@@ -47,6 +47,12 @@ export interface OverlaySpec {
 
 export type Placement = { kind: "strip" } | ({ kind: "overlay" } & OverlaySpec);
 
+/** Mirrors monitor_widgets.rs's StripInstance: one placed copy of a widget. */
+export interface StripInstance {
+  instance_id: string;
+  widget_id: string;
+}
+
 export interface Settings {
   left_margin: number;
   enabled_widgets: string[];
@@ -59,6 +65,19 @@ export interface Settings {
   widget_config: Record<string, Record<string, unknown>>;
   widget_placement: Record<string, Placement>;
   dividers_migrated: boolean;
+  // Keyed by monitor device name ("" = primary); mirrors settings.rs's MonitorWidgets.
+  monitor_widgets: Record<string, StripInstance[]>;
+}
+
+/** The instance placing `widgetId`, searched across every monitor's lane. Exactly
+ * one match exists for anything the live strip can render today (no UI yet places
+ * two copies of one kind), so "#1" is a safe fallback if none is found. */
+export function instanceIdFor(settings: Settings | null | undefined, widgetId: string): string {
+  for (const instances of Object.values(settings?.monitor_widgets ?? {})) {
+    const match = instances.find((si) => si.widget_id === widgetId);
+    if (match) return match.instance_id;
+  }
+  return `${widgetId}#1`;
 }
 
 /** An absent entry means the strip, which is what keeps existing installs migration-free. */
