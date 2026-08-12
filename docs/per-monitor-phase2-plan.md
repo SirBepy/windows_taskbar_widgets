@@ -144,6 +144,31 @@ Each leaves `cargo check` and `cargo test` green on its own.
 8. `system_stats/poller.rs`: loop all strip labels, matching the overlay loop already at lines 121-125.
 9. Todo 52's migration and deletion, per the section above.
 
+## What Phase 2 did NOT ship, and Phase 3 must
+
+Found by an adversarial review of the whole 9-step diff on 2026-08-12. None of it is reachable by a
+user today, because nothing can yet write a non-`""` monitor key, but all of it blocks Phase 3.
+
+- **`main.ts` has no per-window awareness at all.** `renderTiles` renders the full flat
+  `enabled_widgets` list regardless of which window it runs in, so a secondary strip would show an
+  exact duplicate of the primary's whole tile set. There is no strip equivalent of
+  `overlay_widget_id`. This is the first thing Phase 3 has to fix.
+- **`set_instance_monitor` and `strip_monitor_key` were specified here but never written.** Grep
+  confirms no hits for either. `strip_monitor_key` is what lets a strip window learn its own monitor
+  without parsing its sanitized label; `set_instance_monitor` is the write path that locks a
+  placement to a concrete device name (Decision 2). Phase 3/4 needs both.
+- **`lib.rs`'s `toggle_strip` still only touches the bare `strip` label**, so a secondary strip would
+  ignore a tray hide. Superseded anyway by
+  [[55-tray-left-click-opens-settings]], which respecs the tray and already calls for iterating
+  every strip.
+
+Two HIGH bugs the same review found WERE fixed, in `9ffcee2`: `monitor_widgets` never gained an
+instance for a widget adopted after first run (so Hide, move-left/right and Floating all silently
+no-opped for pomodoro and spotify), and a hide-then-re-add orphaned an instance id in
+`hidden_widgets` that made the widget vanish. Both now have regression tests. `Settings::persist`
+and `settings::load` both call `ensure_instances`, which is the self-heal choke point every writer
+converges on - keep it that way rather than adding per-writer fixups.
+
 ## Deferred to the live multi-monitor sitting
 
 - Whether polling `available_monitors()` every 250ms reflects a real hotplug promptly.
