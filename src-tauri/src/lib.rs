@@ -8,6 +8,7 @@ mod monitor_widgets;
 mod overlay;
 mod settings;
 mod spotify_smtc;
+mod strip;
 mod system_stats;
 mod taskbar;
 mod tile_menu;
@@ -169,6 +170,7 @@ pub fn run() {
         .manage(system_stats::StatsState(Mutex::new(Default::default())))
         .manage(bridge_pomodoro::new_state())
         .manage(overlay::new_state())
+        .manage(strip::new_state())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_kit_updater::plugin())
         // Backs the About page's "Relaunch now" button after an update installs.
