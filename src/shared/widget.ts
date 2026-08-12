@@ -69,7 +69,7 @@ export function placementOf(
   return settings?.widget_placement?.[id] ?? { kind: "strip" };
 }
 
-export function isOverlayPlaced(
+function isOverlayPlaced(
   settings: Settings | null | undefined,
   id: string,
 ): boolean {
