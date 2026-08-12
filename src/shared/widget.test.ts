@@ -4,6 +4,8 @@ import {
   overlayDims,
   overlayRenderer,
   placementOf,
+  stripNeedsRemount,
+  stripTileIds,
   type Settings,
   type TaskbarWidget,
 } from "./widget";
@@ -28,6 +30,34 @@ describe("placementOf", () => {
     } as unknown as Settings;
 
     expect(placementOf(settings, "cpu")).toEqual({ kind: "overlay", monitor: "", x: 10, y: 20 });
+  });
+});
+
+describe("stripTileIds", () => {
+  it("returns all ids when nothing is overlay-placed", () => {
+    expect(stripTileIds(["cpu", "ram"], null)).toEqual(["cpu", "ram"]);
+  });
+
+  it("drops ids placed as a floating overlay", () => {
+    const settings = {
+      widget_placement: { cpu: { kind: "overlay", monitor: "", x: 0, y: 0 } },
+    } as unknown as Settings;
+
+    expect(stripTileIds(["cpu", "ram"], settings)).toEqual(["ram"]);
+  });
+});
+
+describe("stripNeedsRemount", () => {
+  it("is false when membership and order are unchanged", () => {
+    expect(stripNeedsRemount(["cpu", "ram"], ["cpu", "ram"])).toBe(false);
+  });
+
+  it("is true on a length change", () => {
+    expect(stripNeedsRemount(["cpu"], ["cpu", "ram"])).toBe(true);
+  });
+
+  it("is true on a reorder even with the same ids", () => {
+    expect(stripNeedsRemount(["cpu", "ram"], ["ram", "cpu"])).toBe(true);
   });
 });
 

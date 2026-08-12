@@ -4,7 +4,13 @@ import { listen } from "@tauri-apps/api/event";
 import { runAutoUpdateCheck } from "../vendor/tauri_kit/frontend/updater/auto-check";
 import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
-import { applyOpacity, isOverlayPlaced, Settings, TaskbarWidget } from "./shared/widget";
+import {
+  applyOpacity,
+  Settings,
+  stripNeedsRemount,
+  stripTileIds,
+  TaskbarWidget,
+} from "./shared/widget";
 
 reportErrors("strip");
 
@@ -20,6 +26,7 @@ const HOVER_OPEN_DELAY_MS = 250;
 
 let row: HTMLElement;
 let tileCleanups: (() => void)[] = [];
+let lastVisibleIds: string[] = [];
 // Shared across tiles (only one can be hovered/dragged at a time) so drag-start
 // can cancel a pending hover-open without each tile tracking its own timer.
 let flyoutOpenTimer: number | undefined;
@@ -81,10 +88,11 @@ function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget) {
 // it is dropped here rather than filtered out of enabled_widgets (which would lose
 // its position in the strip if the user moves it back).
 function renderTiles(ids: string[], settings: Settings | null) {
+  lastVisibleIds = stripTileIds(ids, settings);
   tileCleanups.forEach((stop) => stop());
   tileCleanups = [];
   row.replaceChildren();
-  for (const widget of widgetsFor(ids.filter((id) => !isOverlayPlaced(settings, id)))) {
+  for (const widget of widgetsFor(lastVisibleIds)) {
     const tile = document.createElement("div");
     tile.className = "tile";
     tile.dataset.widget = widget.id;
@@ -115,7 +123,11 @@ async function main() {
   listen("widgets-changed", async () => {
     const s = await invoke<Settings>("get_settings").catch(() => null);
     applyOpacity(s);
-    if (s) renderTiles(s.enabled_widgets, s);
+    // Config-only saves (opacity, margin, hide_from_capture, show_temp...) reach mounted
+    // tiles via subscribeSettings; only a tile-membership/order change remounts the strip.
+    if (s && stripNeedsRemount(lastVisibleIds, stripTileIds(s.enabled_widgets, s))) {
+      renderTiles(s.enabled_widgets, s);
+    }
     forceReport();
   });
   listen<{ widget_id: string; item_id: string }>("tile-menu-action", (e) => {

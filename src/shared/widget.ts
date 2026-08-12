@@ -76,6 +76,17 @@ export function isOverlayPlaced(
   return placementOf(settings, id).kind === "overlay";
 }
 
+/** Ids that render as strip tiles: enabled widgets minus ones placed as floating overlays. */
+export function stripTileIds(ids: string[], settings: Settings | null | undefined): string[] {
+  return ids.filter((id) => !isOverlayPlaced(settings, id));
+}
+
+/** True when the strip must tear down/remount: tile membership or order changed.
+ * Config-only changes (e.g. show_temp) reach mounted tiles via subscribeSettings instead. */
+export function stripNeedsRemount(prevIds: string[], nextIds: string[]): boolean {
+  return prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
+}
+
 /** Declared overlay size, falling back to the flyout's. Null means "cannot be an overlay". */
 export function overlayDims(
   w: TaskbarWidget,
