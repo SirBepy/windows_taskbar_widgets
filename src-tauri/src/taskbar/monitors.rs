@@ -27,6 +27,39 @@ pub fn select_taskbar<'a>(
     taskbars.iter().find(|t| t.is_primary).or_else(|| taskbars.first())
 }
 
+/// Resolves `key` (a device_name, or "" for "whatever is primary") against `monitors`
+/// (name, is_primary) pairs. Unlike `select_taskbar`, a non-empty key that is absent
+/// resolves to `None`: a strip lane is a lock, not a "best effort" pick.
+#[allow(dead_code)]
+pub fn resolve_monitor_key(monitors: &[(String, bool)], key: &str) -> Option<String> {
+    if !key.is_empty() {
+        return monitors.iter().find(|(name, _)| name == key).map(|(name, _)| name.clone());
+    }
+    monitors.iter().find(|(_, is_primary)| *is_primary).map(|(name, _)| name.clone())
+}
+
+/// `resolve_monitor_key` fed from the live monitor list. Deliberately uses
+/// `available_monitors()`, not `enumerate_taskbars()`: a strip's monitor doesn't need
+/// to host a taskbar, `position_strip` already falls back to the work area.
+#[allow(dead_code)]
+pub fn resolve_live_monitor_key(app: &AppHandle, key: &str) -> Option<String> {
+    let monitors: Vec<(String, bool)> = app
+        .available_monitors()
+        .ok()?
+        .into_iter()
+        .filter_map(|m| m.name().cloned().map(|name| (name, false)))
+        .collect();
+    let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
+    let monitors: Vec<(String, bool)> = monitors
+        .into_iter()
+        .map(|(name, _)| {
+            let is_primary = Some(&name) == primary_name.as_ref();
+            (name, is_primary)
+        })
+        .collect();
+    resolve_monitor_key(&monitors, key)
+}
+
 /// The app's configured `taskbar_monitor` setting, resolved against a fresh
 /// enumeration (never cached, same "re-find every call" property FindWindowW had).
 pub fn selected_taskbar(app: &AppHandle) -> Option<DetectedTaskbar> {
@@ -170,5 +203,36 @@ mod tests {
         let taskbars = [taskbar(r"\\.\DISPLAY1", false), taskbar(r"\\.\DISPLAY2", false)];
         let picked = select_taskbar(&taskbars, "").unwrap();
         assert_eq!(picked.device_name, r"\\.\DISPLAY1");
+    }
+
+    #[test]
+    fn resolve_present_key_returns_it() {
+        let monitors = [(r"\\.\DISPLAY1".to_string(), true), (r"\\.\DISPLAY2".to_string(), false)];
+        assert_eq!(resolve_monitor_key(&monitors, r"\\.\DISPLAY2"), Some(r"\\.\DISPLAY2".to_string()));
+    }
+
+    #[test]
+    fn resolve_absent_key_returns_none_no_fallback() {
+        let monitors = [(r"\\.\DISPLAY1".to_string(), true)];
+        assert_eq!(resolve_monitor_key(&monitors, r"\\.\DISPLAY2"), None);
+    }
+
+    #[test]
+    fn resolve_empty_key_returns_primary() {
+        let monitors = [(r"\\.\DISPLAY1".to_string(), false), (r"\\.\DISPLAY2".to_string(), true)];
+        assert_eq!(resolve_monitor_key(&monitors, ""), Some(r"\\.\DISPLAY2".to_string()));
+    }
+
+    #[test]
+    fn resolve_empty_key_with_no_primary_returns_none() {
+        let monitors = [(r"\\.\DISPLAY1".to_string(), false), (r"\\.\DISPLAY2".to_string(), false)];
+        assert_eq!(resolve_monitor_key(&monitors, ""), None);
+    }
+
+    #[test]
+    fn resolve_empty_slice_returns_none() {
+        let monitors: [(String, bool); 0] = [];
+        assert_eq!(resolve_monitor_key(&monitors, ""), None);
+        assert_eq!(resolve_monitor_key(&monitors, r"\\.\DISPLAY1"), None);
     }
 }
