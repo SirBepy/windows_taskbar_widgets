@@ -181,15 +181,18 @@ pub fn run() {
                 autohide::set_user_hidden(false);
             }
         }))
-        // Same targets as tauri_kit_settings::with_logging() (kit_copy_logs reads
-        // <log-dir>/app.log), but capped at Info: the wmi crate TRACE-logs every
-        // thermal query, which with KeepAll rotation would grow logs unbounded.
+        // kit_copy_logs reads <log-dir>/app.log. Capped at Info: the wmi crate TRACE-logs
+        // every thermal query, which with KeepAll rotation would grow logs unbounded.
+        // `targets` REPLACES Builder::new()'s defaults; `target` appends to them, which is
+        // what wrote every line twice into both app.log and the productName-derived file.
         .plugin(
             tauri_plugin_log::Builder::new()
-                .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::LogDir { file_name: Some("app".into()) },
-                ))
-                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("app".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                ])
                 .max_file_size(5_000_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .level(log::LevelFilter::Info)
