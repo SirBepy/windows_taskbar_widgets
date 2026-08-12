@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { html, render } from "lit-html";
-import { isDragging, TaskbarWidget } from "../shared/widget";
+import { fmtClock, isDragging, TaskbarWidget } from "../shared/widget";
 
 type Phase = "work" | "short" | "long" | "other" | "snooze";
 
@@ -33,16 +33,10 @@ function displaySec(s: PomodoroPush, nowMs: number): number {
   return s.phase === "other" ? base + elapsed : Math.max(0, base - elapsed);
 }
 
-// Exported so the fixed-width CSS budget can be tested against real boundary
-// values without a DOM (see pomodoro.test.ts).
+// Thin wrapper over the shared formatter, kept exported so pomodoro.test.ts's
+// boundary tests still import it directly.
 export function fmtTime(totalSec: number): string {
-  const sec = Math.max(0, Math.round(totalSec));
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  const mm = String(m).padStart(2, "0");
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  return fmtClock(totalSec * 1000, { padMinutes: true, hours: true });
 }
 
 function cmd(action: string, phase?: string) {

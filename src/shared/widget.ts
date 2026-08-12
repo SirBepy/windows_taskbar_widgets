@@ -124,6 +124,19 @@ export function subscribeSettings(onSettings: (s: Settings) => void): () => void
   };
 }
 
+/** "5:30" by default; `padMinutes` zero-pads mm, `hours` adds an "h:mm:ss" branch
+ * once the duration reaches an hour (otherwise minutes keep counting past 59). */
+export function fmtClock(ms: number, opts?: { padMinutes?: boolean; hours?: boolean }): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  const showHours = !!opts?.hours && totalSec >= 3600;
+  const h = Math.floor(totalSec / 3600);
+  const m = showHours ? Math.floor((totalSec % 3600) / 60) : Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  const mm = opts?.padMinutes ? String(m).padStart(2, "0") : String(m);
+  const ss = String(s).padStart(2, "0");
+  return showHours ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 export function fmtBytes(bytes: number, digits = 1): string {
   const gb = bytes / 1024 ** 3;
   if (gb >= 1024) return `${(gb / 1024).toFixed(digits)} TB`;

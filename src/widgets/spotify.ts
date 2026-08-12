@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { html, render } from "lit-html";
-import { ConfigField, isDragging, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
+import { ConfigField, fmtClock, isDragging, subscribeSettings, TaskbarWidget, widgetConfig } from "../shared/widget";
 
 export interface SpotifyNowPlaying {
   title: string;
@@ -80,13 +80,6 @@ function updateTileMarquee(root: HTMLElement) {
 }
 
 // ---------- flyout ----------
-
-function fmtClock(ms: number): string {
-  const totalSec = Math.max(0, Math.round(ms / 1000));
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 function seekBar(np: SpotifyNowPlaying, positionMs: number, onSeek: (ms: number) => void) {
   const pct = np.duration_ms > 0 ? Math.min(100, (positionMs / np.duration_ms) * 100) : 0;

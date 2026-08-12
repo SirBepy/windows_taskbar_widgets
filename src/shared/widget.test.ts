@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fmtClock,
   overlayDims,
   overlayRenderer,
   placementOf,
@@ -50,6 +51,31 @@ describe("overlayDims", () => {
   // Size never falls back to a measured tile; a widget with neither is not overlay-placeable.
   it("returns null when the widget declares no size at all", () => {
     expect(overlayDims(widget())).toBeNull();
+  });
+});
+
+describe("fmtClock", () => {
+  it("defaults to unpadded minutes with no hours branch (Spotify's usage)", () => {
+    expect(fmtClock(0)).toBe("0:00");
+    expect(fmtClock(30_000)).toBe("0:30");
+    expect(fmtClock(330_000)).toBe("5:30");
+    expect(fmtClock(60_000)).toBe("1:00");
+    expect(fmtClock(3_600_000)).toBe("60:00");
+  });
+
+  it("padMinutes zero-pads mm without enabling an hours branch", () => {
+    expect(fmtClock(30_000, { padMinutes: true })).toBe("00:30");
+    expect(fmtClock(3_600_000, { padMinutes: true })).toBe("60:00");
+  });
+
+  it("hours adds an h:mm:ss branch once the duration reaches an hour", () => {
+    expect(fmtClock(3_599_000, { padMinutes: true, hours: true })).toBe("59:59");
+    expect(fmtClock(3_600_000, { padMinutes: true, hours: true })).toBe("1:00:00");
+    expect(fmtClock(35_999_000, { padMinutes: true, hours: true })).toBe("9:59:59");
+  });
+
+  it("padMinutes and hours are independent flags", () => {
+    expect(fmtClock(3_665_000, { hours: true })).toBe("1:1:05");
   });
 });
 
