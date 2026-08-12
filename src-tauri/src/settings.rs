@@ -226,10 +226,10 @@ fn migrate_dividers(enabled_widgets: &mut Vec<String>) {
     *enabled_widgets = out;
 }
 
-// Backfills monitor_widgets/instance-keyed maps from the flat, pre-instance model.
-// Plain "#1" suffix, never the collision-avoiding next_instance_id - at most one of
-// each widget id can exist pre-migration, so "#1" can't collide. Dividers keep their
-// own id unchanged (same prefix rule as MonitorWidgets::next_instance_id).
+// Backfills monitor_widgets and remaps hidden_widgets from the flat, pre-instance
+// model. widget_config/widget_placement deliberately stay KIND-keyed: every reader
+// looks them up by kind, so remapping them here only orphans the entry. "#1" can't
+// collide pre-migration; dividers keep their own id (see next_instance_id).
 fn migrate_to_instances(settings: &mut Settings) {
     if settings.widgets_migrated_to_instances {
         return;
@@ -251,16 +251,43 @@ fn migrate_to_instances(settings: &mut Settings) {
 
     let remap = |old: &str| id_to_instance.get(old).cloned().unwrap_or_else(|| format!("{old}#1"));
     settings.hidden_widgets = settings.hidden_widgets.iter().map(|id| remap(id)).collect();
-    settings.widget_config = std::mem::take(&mut settings.widget_config)
-        .into_iter()
-        .map(|(id, v)| (remap(&id), v))
-        .collect();
-    settings.widget_placement = std::mem::take(&mut settings.widget_placement)
-        .into_iter()
-        .map(|(id, p)| (remap(&id), p))
-        .collect();
 
     settings.widgets_migrated_to_instances = true;
+}
+
+// Un-orphans widget_config/widget_placement entries that 0.1.10's since-fixed
+// migrate_to_instances left instance-keyed. Resolves via monitor_widgets, never by
+// stripping "#1", so a divider id or a kind containing "#" survives. Idempotent,
+// and an existing kind-keyed entry always beats its instance-keyed twin.
+fn repair_kind_keyed_maps(settings: &mut Settings) {
+    let kinds: std::collections::HashSet<String> =
+        settings.monitor_widgets.all().map(|si| si.widget_id.clone()).collect();
+    let instance_to_kind: HashMap<String, String> = settings
+        .monitor_widgets
+        .all()
+        .map(|si| (si.instance_id.clone(), si.widget_id.clone()))
+        .collect();
+
+    repair_map(&mut settings.widget_config, &kinds, &instance_to_kind);
+    repair_map(&mut settings.widget_placement, &kinds, &instance_to_kind);
+}
+
+fn repair_map<V>(
+    map: &mut HashMap<String, V>,
+    kinds: &std::collections::HashSet<String>,
+    instance_to_kind: &HashMap<String, String>,
+) {
+    // Kind-keyed entries always win: they overwrite unconditionally, while an
+    // instance-keyed entry only fills a gap (or_insert), regardless of drain order.
+    for (key, value) in std::mem::take(map) {
+        if kinds.contains(&key) {
+            map.insert(key, value);
+        } else if let Some(kind) = instance_to_kind.get(&key) {
+            map.entry(kind.clone()).or_insert(value);
+        } else {
+            map.insert(key, value);
+        }
+    }
 }
 
 pub fn load(path: &Path) -> Settings {
@@ -291,6 +318,10 @@ pub fn load(path: &Path) -> Settings {
             settings.widgets_migrated_to_instances = true;
         }
     }
+    // Repairs any widget_config/widget_placement entry stranded instance-keyed by
+    // 0.1.10's now-fixed migrate_to_instances. Unconditional and idempotent, so it's
+    // safe on every load rather than gated behind another migration flag.
+    repair_kind_keyed_maps(&mut settings);
     // Repairs an existing install with no waiting on a save: same self-heal persist() runs.
     settings.ensure_instances();
     settings
@@ -487,7 +518,9 @@ mod tests {
     }
 
     // The whole migration story for instances: a settings.json written before
-    // monitor_widgets existed must load with every widget re-keyed by instance id.
+    // monitor_widgets existed must load with monitor_widgets backfilled by instance
+    // id, while widget_config/widget_placement stay keyed by kind (every reader
+    // looks them up by kind, not instance id).
     #[test]
     fn settings_without_monitor_widgets_migrates_enabled_widgets_to_instances() {
         let dir = tempdir().unwrap();
@@ -509,12 +542,120 @@ mod tests {
         let widget_ids: Vec<&str> = instances.iter().map(|si| si.widget_id.as_str()).collect();
         assert_eq!(instance_ids, ["cpu#1", "ram#1", "conductor#1"]);
         assert_eq!(widget_ids, ["cpu", "ram", "conductor"]);
-        assert_eq!(loaded.widget_config.get("cpu#1").and_then(|v| v.get("foo")), Some(&serde_json::json!(1)));
-        assert_eq!(loaded.widget_placement.get("ram#1"), Some(&Placement::Strip));
+        assert_eq!(loaded.widget_config.get("cpu").and_then(|v| v.get("foo")), Some(&serde_json::json!(1)));
+        assert_eq!(loaded.widget_placement.get("ram"), Some(&Placement::Strip));
         assert_eq!(loaded.left_margin, 44);
         assert_eq!(loaded.opacity, 65);
         assert_eq!(loaded.enabled_widgets, ["cpu", "ram", "conductor"]);
         assert!(loaded.widgets_migrated_to_instances);
+    }
+
+    // Bug 3: migrate_to_instances used to remap widget_config/widget_placement keys
+    // to instance ids too, orphaning both since every reader looks them up by kind.
+    #[test]
+    fn migrate_to_instances_leaves_config_and_placement_kind_keyed_but_remaps_hidden() {
+        let mut s = Settings {
+            enabled_widgets: ["cpu", "ram"].map(String::from).into(),
+            hidden_widgets: vec!["ram".to_string()],
+            widgets_migrated_to_instances: false,
+            ..Settings::default()
+        };
+        s.widget_config.insert("cpu".to_string(), serde_json::json!({"foo": 1}));
+        s.widget_placement.insert("ram".to_string(), Placement::Strip);
+
+        migrate_to_instances(&mut s);
+
+        assert_eq!(s.widget_config.get("cpu").and_then(|v| v.get("foo")), Some(&serde_json::json!(1)));
+        assert_eq!(s.widget_placement.get("ram"), Some(&Placement::Strip));
+        assert_eq!(s.hidden_widgets, ["ram#1"]);
+    }
+
+    // Regression: a pre-migration settings.json with a Floating widget must still be
+    // reported by overlays() after migrate_to_instances runs. Before the fix, the
+    // remap orphaned "conductor" to "conductor#1" and the overlay silently vanished.
+    #[test]
+    fn floating_overlay_survives_migration_to_instances() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let json = r#"{
+            "left_margin":12,
+            "enabled_widgets":["cpu","conductor"],
+            "dividers_migrated":true,
+            "widget_placement":{"conductor":{"kind":"overlay","monitor":"","x":10.0,"y":20.0}}
+        }"#;
+        std::fs::write(&path, json).unwrap();
+
+        let loaded = load(&path);
+
+        let overlay_ids: Vec<String> = loaded.overlays().into_iter().map(|(_, widget_id, _)| widget_id).collect();
+        assert_eq!(overlay_ids, ["conductor"]);
+    }
+
+    #[test]
+    fn repair_rekeys_an_instance_keyed_widget_placement_entry() {
+        let mut s = Settings::default();
+        s.monitor_widgets.0.entry(String::new()).or_default().push(StripInstance {
+            instance_id: "pomodoro#1".into(),
+            widget_id: "pomodoro".into(),
+        });
+        let spec = OverlaySpec { x: 5.0, y: 6.0, ..Default::default() };
+        s.widget_placement.insert("pomodoro#1".to_string(), Placement::Overlay(spec.clone()));
+
+        repair_kind_keyed_maps(&mut s);
+
+        assert_eq!(s.widget_placement.get("pomodoro"), Some(&Placement::Overlay(spec)));
+        assert!(!s.widget_placement.contains_key("pomodoro#1"));
+    }
+
+    #[test]
+    fn repair_rekeys_an_instance_keyed_widget_config_entry() {
+        let mut s = Settings::default();
+        s.widget_config.insert("cpu#1".to_string(), serde_json::json!({"show_percent": true}));
+
+        repair_kind_keyed_maps(&mut s);
+
+        assert_eq!(s.widget_config.get("cpu").and_then(|v| v.get("show_percent")), Some(&serde_json::json!(true)));
+        assert!(!s.widget_config.contains_key("cpu#1"));
+    }
+
+    #[test]
+    fn repair_leaves_a_divider_id_key_untouched() {
+        let mut s = Settings::default();
+        let divider_id = format!("{DIVIDER_PREFIX}abc-123");
+        s.widget_config.insert(divider_id.clone(), serde_json::json!({"unused": true}));
+
+        repair_kind_keyed_maps(&mut s);
+
+        assert_eq!(s.widget_config.get(&divider_id), Some(&serde_json::json!({"unused": true})));
+    }
+
+    #[test]
+    fn repair_keeps_the_kind_keyed_value_on_collision() {
+        let mut s = Settings::default();
+        s.widget_placement.insert("cpu".to_string(), Placement::Strip);
+        let overlay = Placement::Overlay(OverlaySpec { x: 1.0, y: 1.0, ..Default::default() });
+        s.widget_placement.insert("cpu#1".to_string(), overlay);
+
+        repair_kind_keyed_maps(&mut s);
+
+        assert_eq!(s.widget_placement.get("cpu"), Some(&Placement::Strip));
+        assert!(!s.widget_placement.contains_key("cpu#1"));
+    }
+
+    #[test]
+    fn repair_is_idempotent() {
+        let mut s = Settings::default();
+        s.monitor_widgets.0.entry(String::new()).or_default().push(StripInstance {
+            instance_id: "pomodoro#1".into(),
+            widget_id: "pomodoro".into(),
+        });
+        s.widget_placement.insert("pomodoro#1".to_string(), Placement::Strip);
+
+        repair_kind_keyed_maps(&mut s);
+        let after_first = s.widget_placement.clone();
+        repair_kind_keyed_maps(&mut s);
+
+        assert_eq!(s.widget_placement, after_first);
     }
 
     #[test]
