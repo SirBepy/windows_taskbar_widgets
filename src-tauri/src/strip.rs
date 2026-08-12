@@ -9,6 +9,8 @@ pub const LABEL_PREFIX: &str = "strip-";
 /// single-monitor case has zero behaviour change.
 pub const PRIMARY_LABEL: &str = "strip";
 
+static LAST_WANTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 /// Window label -> device_name, mirroring `overlay::OverlayState`.
 #[derive(Default)]
 pub struct StripState(pub Mutex<HashMap<String, String>>);
@@ -115,7 +117,12 @@ pub fn reconcile(app: &AppHandle) {
     };
     let live = live_monitors(app);
     let wanted = wanted_strip_labels(&widgets, &live);
-    log::info!("strip reconcile: {} wanted", wanted.len());
+    // Logged only on change: reconcile runs inside autohide's 250ms tick, so an
+    // unconditional line here writes ~4/sec and grows app.log unbounded under
+    // KeepAll rotation - measured live on 2026-08-12 at 121 of 128 lines.
+    if LAST_WANTED.lock().map(|mut l| std::mem::replace(&mut *l, wanted.clone()) != wanted).unwrap_or(true) {
+        log::info!("strip reconcile: {} wanted", wanted.len());
+    }
 
     for (label, win) in app.webview_windows() {
         if label != PRIMARY_LABEL && label.starts_with(LABEL_PREFIX) && !wanted.contains(&label) {
