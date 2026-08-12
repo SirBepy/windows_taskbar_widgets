@@ -101,9 +101,9 @@ fn run_tick(app: &AppHandle, fullscreen_device: Option<&str>) {
         let visible = win.is_visible().unwrap_or(true);
         if hide_needed && visible {
             let _ = win.hide();
-            // Flyout only ever anchors to the primary strip (flyout.rs, step 6), so a
-            // secondary hiding has nothing floating over it to close.
-            if label == crate::strip::PRIMARY_LABEL {
+            // The flyout re-anchors to whichever strip is hovered (flyout.rs, step 6),
+            // so close it only when the hiding strip is the one it's currently on.
+            if crate::flyout::is_anchored_to(&label) {
                 crate::flyout::close_flyout(app.clone());
             }
         } else if !hide_needed {
