@@ -68,10 +68,11 @@ fn set_writer(app: &AppHandle, tx: Option<Sender<String>>) {
     }
 }
 
-/// Enabled anywhere in this app, taskbar or overlay alike (design doc decision 3).
+/// Any non-hidden placement of "pomodoro", taskbar or overlay, on any monitor
+/// (design doc decision 3).
 fn pomodoro_hosted(app: &AppHandle) -> bool {
     app.try_state::<SettingsState>()
-        .and_then(|s| s.0.lock().ok().map(|g| g.is_active("pomodoro")))
+        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active("pomodoro")))
         .unwrap_or(false)
 }
 

@@ -97,7 +97,7 @@ fn apply_geometry(app: &AppHandle, win: &tauri::WebviewWindow, spec: &OverlaySpe
 pub fn reconcile(app: &AppHandle) {
     // Logged, not silent: a skipped reconcile used to look identical to "there was
     // nothing to do", which cost a full debugging session on 2026-08-08.
-    let desired: Vec<(String, OverlaySpec)> = match app.state::<SettingsState>().0.lock() {
+    let desired: Vec<(String, String, OverlaySpec)> = match app.state::<SettingsState>().0.lock() {
         Ok(s) => s.overlays(),
         Err(e) => {
             log::error!("overlay reconcile skipped, settings lock poisoned: {e}");
@@ -105,13 +105,15 @@ pub fn reconcile(app: &AppHandle) {
         }
     };
     log::info!("overlay reconcile: {} wanted", desired.len());
-    let wanted: Vec<(String, String, OverlaySpec)> = desired
+    // label_for(instance_id), not widget_id: two placements of one widget kind
+    // must become two distinct windows.
+    let wanted: Vec<(String, String, String, OverlaySpec)> = desired
         .into_iter()
-        .map(|(id, spec)| (label_for(&id), id, spec))
+        .map(|(instance_id, widget_id, spec)| (label_for(&instance_id), instance_id, widget_id, spec))
         .collect();
 
     for (label, win) in app.webview_windows() {
-        if label.starts_with(LABEL_PREFIX) && !wanted.iter().any(|(l, _, _)| *l == label) {
+        if label.starts_with(LABEL_PREFIX) && !wanted.iter().any(|(l, _, _, _)| *l == label) {
             let _ = win.close();
             if let Ok(mut map) = app.state::<OverlayState>().0.lock() {
                 map.remove(&label);
@@ -119,22 +121,23 @@ pub fn reconcile(app: &AppHandle) {
         }
     }
 
-    for (label, id, spec) in &wanted {
+    for (label, instance_id, widget_id, spec) in &wanted {
         match app.get_webview_window(label) {
             Some(win) => apply_geometry(app, &win, spec),
             None => {
-                log::info!("overlay {id}: building {label}");
+                log::info!("overlay {instance_id}: building {label}");
                 // build() must run on the main thread; reconcile() is also called from
                 // save_settings (an IPC handler, off it), which silently never created the
                 // window before (todo 46). run_on_main_thread hops it over - a no-op extra
                 // tick when already on the main thread (the setup() call site).
-                let (app2, id2, label2, spec2) = (app.clone(), id.clone(), label.clone(), spec.clone());
+                let (app2, widget_id2, label2, spec2) =
+                    (app.clone(), widget_id.clone(), label.clone(), spec.clone());
                 if let Err(e) = app.run_on_main_thread(move || {
-                    if let Err(e) = build(&app2, &id2, &label2, &spec2) {
-                        log::error!("overlay {id2}: {e}");
+                    if let Err(e) = build(&app2, &widget_id2, &label2, &spec2) {
+                        log::error!("overlay {label2}: {e}");
                     }
                 }) {
-                    log::error!("overlay {id}: failed to dispatch build to main thread: {e}");
+                    log::error!("overlay {instance_id}: failed to dispatch build to main thread: {e}");
                 }
             }
         }

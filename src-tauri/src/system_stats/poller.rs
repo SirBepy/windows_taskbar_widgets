@@ -112,14 +112,15 @@ pub fn spawn_poller(app: AppHandle) {
             }
             // emit_to, not emit: a broadcast also wakes the settings webview,
             // which renders no stats and is hidden almost all the time.
-            let _ = app.emit_to("strip", "system-stats", &stats);
+            let _ = app.emit_to(crate::strip::PRIMARY_LABEL, "system-stats", &stats);
             if crate::flyout::is_open() {
                 let _ = app.emit_to("flyout", "system-stats", &stats);
             }
             // Overlay windows render the same stat widgets, and there is no cheap
             // "is it open" check: an existing window is by definition showing one.
+            // Secondary strips are just as unconditional as the primary label above.
             for label in app.webview_windows().into_keys() {
-                if label.starts_with(crate::overlay::LABEL_PREFIX) {
+                if label.starts_with(crate::overlay::LABEL_PREFIX) || label.starts_with(crate::strip::LABEL_PREFIX) {
                     let _ = app.emit_to(&label, "system-stats", &stats);
                 }
             }
@@ -134,13 +135,23 @@ pub fn spawn_poller(app: AppHandle) {
     });
 }
 
+// Any live strip visible, or no strip built yet (early startup, matching the old
+// single-window default), means sample; per-monitor granularity isn't worth it
+// since the poll itself is one shared cost.
 fn is_watched(app: &AppHandle) -> bool {
     if crate::flyout::is_open() {
         return true;
     }
-    app.get_webview_window("strip")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(true)
+    let mut any_strip = false;
+    for (label, w) in app.webview_windows() {
+        if label == crate::strip::PRIMARY_LABEL || label.starts_with(crate::strip::LABEL_PREFIX) {
+            any_strip = true;
+            if w.is_visible().unwrap_or(true) {
+                return true;
+            }
+        }
+    }
+    !any_strip
 }
 
 #[cfg(target_os = "windows")]

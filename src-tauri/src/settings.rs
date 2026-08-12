@@ -110,43 +110,39 @@ impl Default for Settings {
 }
 
 impl Settings {
-    // Enabled minus hidden: hidden wins, so a hidden widget never gets an overlay window.
-    pub fn is_active(&self, id: &str) -> bool {
-        self.enabled_widgets.iter().any(|w| w == id) && !self.hidden_widgets.iter().any(|w| w == id)
+    /// True when this instance exists and neither its instance id (tile-menu hide)
+    /// nor its widget kind (the settings UI's strip-remove still writes the bare
+    /// kind, no instance) appear in hidden_widgets.
+    pub fn is_active(&self, instance_id: &str) -> bool {
+        self.monitor_widgets.all().any(|si| {
+            si.instance_id == instance_id
+                && !self.hidden_widgets.iter().any(|h| h == instance_id || h == &si.widget_id)
+        })
     }
 
-    /// Ids placed as overlays right now, paired with their spec, in strip order.
-    pub fn overlays(&self) -> Vec<(String, OverlaySpec)> {
-        self.enabled_widgets
-            .iter()
-            .filter(|id| self.is_active(id))
-            .filter_map(|id| match self.widget_placement.get(id) {
-                Some(Placement::Overlay(spec)) => Some((id.clone(), spec.clone())),
-                _ => None,
-            })
-            .collect()
-    }
-
-    // Instance-id-keyed successors to is_active/overlays above. Nothing calls these
-    // yet - widget_placement/hidden_widgets are still keyed by widget_id until the
-    // callers that read them (overlay.rs, bridge_pomodoro.rs, ...) migrate in a later
-    // phase - so the old methods stay untouched under their current names.
-    #[allow(dead_code)]
-    pub fn is_active_instance(&self, instance_id: &str) -> bool {
-        self.monitor_widgets.all().any(|si| si.instance_id == instance_id)
-            && !self.hidden_widgets.iter().any(|h| h == instance_id)
-    }
-
-    #[allow(dead_code)]
-    pub fn overlays_by_instance(&self) -> Vec<(InstanceId, OverlaySpec)> {
+    /// Ids placed as overlays right now, paired with their widget kind (so
+    /// `overlay_widget_id` can report it) and spec. widget_placement is still
+    /// looked up by kind: the settings UI's placement toggle has no per-instance
+    /// affordance yet, so every instance of a kind shares that kind's one spec.
+    pub fn overlays(&self) -> Vec<(InstanceId, String, OverlaySpec)> {
         self.monitor_widgets
             .all()
-            .filter(|si| self.is_active_instance(&si.instance_id))
-            .filter_map(|si| match self.widget_placement.get(&si.instance_id) {
-                Some(Placement::Overlay(spec)) => Some((si.instance_id.clone(), spec.clone())),
+            .filter(|si| self.is_active(&si.instance_id))
+            .filter_map(|si| match self.widget_placement.get(&si.widget_id) {
+                Some(Placement::Overlay(spec)) => Some((si.instance_id.clone(), si.widget_id.clone(), spec.clone())),
                 _ => None,
             })
             .collect()
+    }
+
+    /// Any non-hidden placement of `widget_id` on any monitor - what
+    /// bridge_pomodoro.rs needs, since it only knows a kind, never a placement.
+    /// Checks both hidden_widgets shapes, same reasoning as `is_active` above.
+    pub fn is_widget_active(&self, widget_id: &str) -> bool {
+        self.monitor_widgets.all().any(|si| {
+            si.widget_id == widget_id
+                && !self.hidden_widgets.iter().any(|h| h == &si.instance_id || h == widget_id)
+        })
     }
 }
 
@@ -398,19 +394,43 @@ mod tests {
 
     #[test]
     fn overlays_skips_hidden_and_strip_placed_widgets() {
-        let mut s = Settings {
-            enabled_widgets: ["cpu", "ram", "gpu"].map(String::from).into(),
-            hidden_widgets: vec!["ram".to_string()],
-            ..Settings::default()
-        };
+        let mut s = Settings { hidden_widgets: vec!["ram".to_string()], ..Settings::default() };
         let spec = OverlaySpec { x: 10.0, y: 10.0, ..Default::default() };
         s.widget_placement.insert("cpu".into(), Placement::Overlay(spec.clone()));
         s.widget_placement.insert("ram".into(), Placement::Overlay(spec));
         s.widget_placement.insert("gpu".into(), Placement::Strip);
 
-        let ids: Vec<String> = s.overlays().into_iter().map(|(id, _)| id).collect();
+        let ids: Vec<String> = s.overlays().into_iter().map(|(instance_id, _, _)| instance_id).collect();
 
-        assert_eq!(ids, ["cpu"]);
+        assert_eq!(ids, ["cpu#1"]);
+    }
+
+    #[test]
+    fn is_widget_active_true_for_one_visible_placement() {
+        assert!(Settings::default().is_widget_active("cpu"));
+    }
+
+    #[test]
+    fn is_widget_active_false_when_hidden_by_instance_id() {
+        let s = Settings { hidden_widgets: vec!["cpu#1".to_string()], ..Settings::default() };
+        assert!(!s.is_widget_active("cpu"));
+    }
+
+    #[test]
+    fn is_widget_active_false_when_hidden_by_legacy_widget_id() {
+        let s = Settings { hidden_widgets: vec!["cpu".to_string()], ..Settings::default() };
+        assert!(!s.is_widget_active("cpu"));
+    }
+
+    #[test]
+    fn is_widget_active_true_with_one_hidden_and_one_visible_sibling() {
+        let mut s = Settings { hidden_widgets: vec!["cpu#1".to_string()], ..Settings::default() };
+        s.monitor_widgets.0.insert(
+            r"\\.\DISPLAY2".to_string(),
+            vec![StripInstance { instance_id: "cpu#2".into(), widget_id: "cpu".into() }],
+        );
+
+        assert!(s.is_widget_active("cpu"));
     }
 
     #[test]
