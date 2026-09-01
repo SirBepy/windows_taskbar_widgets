@@ -28,6 +28,10 @@ const HOVER_OPEN_DELAY_MS = 250;
 let row: HTMLElement;
 let tileCleanups: (() => void)[] = [];
 let lastVisibleIds: string[] = [];
+// Resolved once at boot from `strip_monitor_key`, then reused for every re-render:
+// the window is destroyed and rebuilt if its monitor goes away, so this cannot
+// change for a live window. `null` means the invoke rejected.
+let monitorKey: string | null = null;
 // Shared across tiles (only one can be hovered/dragged at a time) so drag-start
 // can cancel a pending hover-open without each tile tracking its own timer.
 let flyoutOpenTimer: number | undefined;
@@ -85,11 +89,23 @@ function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget, settings: Set
   });
 }
 
+// Filters enabled_widgets (order preserved; strip order still comes from it, not
+// monitor_widgets' own array) down to this window's monitor lane. Falls back to the
+// full list, never a blank strip, when the key is unresolved or has no instances -
+// today's only key, "", is exactly that until Phase 4 ships a writer.
+function idsForThisWindow(ids: string[], settings: Settings | null): string[] {
+  if (monitorKey === null) return ids;
+  const instances = settings?.monitor_widgets?.[monitorKey];
+  if (!instances || instances.length === 0) return ids;
+  const memberIds = new Set(instances.map((si) => si.widget_id));
+  return ids.filter((id) => memberIds.has(id));
+}
+
 // A widget placed as a floating overlay gets its own window instead of a tile, so
 // it is dropped here rather than filtered out of enabled_widgets (which would lose
 // its position in the strip if the user moves it back).
 function renderTiles(ids: string[], settings: Settings | null) {
-  lastVisibleIds = stripTileIds(ids, settings);
+  lastVisibleIds = stripTileIds(idsForThisWindow(ids, settings), settings);
   tileCleanups.forEach((stop) => stop());
   tileCleanups = [];
   row.replaceChildren();
@@ -106,6 +122,7 @@ function renderTiles(ids: string[], settings: Settings | null) {
 
 async function main() {
   const settings = await invoke<Settings>("get_settings").catch(() => null);
+  monitorKey = await invoke<string>("strip_monitor_key").catch(() => null);
   let enabled = settings?.enabled_widgets ?? ["cpu", "ram", "gpu", "disk", "conductor"];
   const hidden = settings?.hidden_widgets ?? [];
   // New registry widgets (added after a user's settings.json was written) default
@@ -126,7 +143,7 @@ async function main() {
     applyOpacity(s);
     // Config-only saves (opacity, margin, hide_from_capture, show_temp...) reach mounted
     // tiles via subscribeSettings; only a tile-membership/order change remounts the strip.
-    if (s && stripNeedsRemount(lastVisibleIds, stripTileIds(s.enabled_widgets, s))) {
+    if (s && stripNeedsRemount(lastVisibleIds, stripTileIds(idsForThisWindow(s.enabled_widgets, s), s))) {
       renderTiles(s.enabled_widgets, s);
     }
     forceReport();

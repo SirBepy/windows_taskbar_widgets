@@ -291,6 +291,7 @@ pub fn run() {
             overlay::overlay_widget_id,
             overlay::save_overlay_geometry,
             overlay::monitor_at_point,
+            strip::strip_monitor_key,
             system_stats::get_system_stats,
             system_stats::get_top_processes,
             conductor_data::get_conductor_usage,

@@ -77,6 +77,37 @@ pub fn label_for_monitor(app: &AppHandle, monitor: &str) -> String {
     resolve_label_for_monitor(monitor, primary_name.as_deref())
 }
 
+/// Pure reverse of `resolve_label_for_monitor`: which `monitor_widgets` key's content
+/// belongs on window `label`. Never parses `label` (sanitized, not reversible) -
+/// re-runs the forward resolution over every key instead, preferring a non-empty
+/// match over `""` (today's single-monitor default) when both resolve to `label`.
+pub fn monitor_key_for_label(keys: &[String], primary_name: Option<&str>, label: &str) -> String {
+    let matched: Vec<&String> =
+        keys.iter().filter(|k| resolve_label_for_monitor(k, primary_name) == label).collect();
+    matched
+        .iter()
+        .find(|k| !k.is_empty())
+        .or(matched.first())
+        .map(|k| k.to_string())
+        .unwrap_or_default()
+}
+
+/// The calling strip window's `monitor_widgets` key, so the page can render only the
+/// instances placed on its own monitor. See `monitor_key_for_label` for the resolution
+/// rule; unmatched (a window whose monitor unplugged) falls back to "", today's key.
+#[tauri::command]
+pub fn strip_monitor_key(app: AppHandle, window: tauri::Window) -> String {
+    let keys: Vec<String> = match app.state::<SettingsState>().0.lock() {
+        Ok(s) => s.monitor_widgets.0.keys().cloned().collect(),
+        Err(e) => {
+            log::error!("strip_monitor_key: settings lock poisoned: {e}");
+            return String::new();
+        }
+    };
+    let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
+    monitor_key_for_label(&keys, primary_name.as_deref(), window.label())
+}
+
 /// Wanted strip labels for the live monitor set. The primary always maps to the bare
 /// `strip` label regardless of instances (zero change for single-monitor); every other
 /// live monitor maps to `label_for(device)` only if it has instances. A `monitor_widgets`
@@ -236,5 +267,31 @@ mod tests {
         let widgets = widgets_with(r"\\.\DISPLAY3", "cpu");
         let live = [(r"\\.\DISPLAY1".to_string(), true)];
         assert_eq!(wanted_strip_labels(&widgets, &live), vec![PRIMARY_LABEL.to_string()]);
+    }
+
+    #[test]
+    fn monitor_key_for_label_empty_only_resolves_to_primary() {
+        let keys = vec!["".to_string()];
+        assert_eq!(monitor_key_for_label(&keys, Some(r"\\.\DISPLAY1"), PRIMARY_LABEL), "");
+    }
+
+    #[test]
+    fn monitor_key_for_label_secondary_resolves_to_its_own_key() {
+        let keys = vec!["".to_string(), r"\\.\DISPLAY2".to_string()];
+        let label = label_for(r"\\.\DISPLAY2");
+        assert_eq!(monitor_key_for_label(&keys, Some(r"\\.\DISPLAY1"), &label), r"\\.\DISPLAY2");
+    }
+
+    #[test]
+    fn monitor_key_for_label_prefers_non_empty_over_empty_when_both_resolve_to_primary() {
+        // "" and the live primary's own device name both resolve to PRIMARY_LABEL.
+        let keys = vec!["".to_string(), r"\\.\DISPLAY1".to_string()];
+        assert_eq!(monitor_key_for_label(&keys, Some(r"\\.\DISPLAY1"), PRIMARY_LABEL), r"\\.\DISPLAY1");
+    }
+
+    #[test]
+    fn monitor_key_for_label_no_match_returns_empty() {
+        let keys = vec![r"\\.\DISPLAY2".to_string()];
+        assert_eq!(monitor_key_for_label(&keys, Some(r"\\.\DISPLAY1"), "strip-DISPLAY3"), "");
     }
 }
