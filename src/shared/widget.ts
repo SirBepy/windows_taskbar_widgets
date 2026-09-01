@@ -106,6 +106,26 @@ export function stripNeedsRemount(prevIds: string[], nextIds: string[]): boolean
   return prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
 }
 
+/** One strip window's share of `ids`, ordered by `ids` rather than by the lane's own array.
+ * An unresolved or empty lane returns `ids` whole: a blank strip is a worse failure than a
+ * duplicated one, and "" is still the only key until Phase 4 ships a writer. */
+export function idsForMonitor(
+  ids: string[],
+  settings: Settings | null | undefined,
+  monitorKey: string | null,
+): string[] {
+  if (monitorKey === null) return ids;
+  const instances = settings?.monitor_widgets?.[monitorKey];
+  if (!instances || instances.length === 0) return ids;
+  const memberIds = new Set(instances.map((si) => si.widget_id));
+  return ids.filter((id) => memberIds.has(id));
+}
+
+/** Registry widgets a user's settings.json has never seen, minus any they already hid. */
+export function newWidgetIds(allIds: string[], enabled: string[], hidden: string[]): string[] {
+  return allIds.filter((id) => !enabled.includes(id) && !hidden.includes(id));
+}
+
 /** Declared overlay size, falling back to the flyout's. Null means "cannot be an overlay". */
 export function overlayDims(
   w: TaskbarWidget,

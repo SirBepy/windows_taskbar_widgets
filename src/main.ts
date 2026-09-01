@@ -6,7 +6,9 @@ import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
 import {
   applyOpacity,
+  idsForMonitor,
   instanceIdFor,
+  newWidgetIds,
   Settings,
   stripNeedsRemount,
   stripTileIds,
@@ -89,17 +91,8 @@ function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget, settings: Set
   });
 }
 
-// Filters enabled_widgets (order preserved; strip order still comes from it, not
-// monitor_widgets' own array) down to this window's monitor lane. Falls back to the
-// full list, never a blank strip, when the key is unresolved or has no instances -
-// today's only key, "", is exactly that until Phase 4 ships a writer.
-function idsForThisWindow(ids: string[], settings: Settings | null): string[] {
-  if (monitorKey === null) return ids;
-  const instances = settings?.monitor_widgets?.[monitorKey];
-  if (!instances || instances.length === 0) return ids;
-  const memberIds = new Set(instances.map((si) => si.widget_id));
-  return ids.filter((id) => memberIds.has(id));
-}
+const idsForThisWindow = (ids: string[], settings: Settings | null) =>
+  idsForMonitor(ids, settings, monitorKey);
 
 // A widget placed as a floating overlay gets its own window instead of a tile, so
 // it is dropped here rather than filtered out of enabled_widgets (which would lose
@@ -121,16 +114,20 @@ function renderTiles(ids: string[], settings: Settings | null) {
 }
 
 async function main() {
-  const settings = await invoke<Settings>("get_settings").catch(() => null);
+  let settings = await invoke<Settings>("get_settings").catch(() => null);
   monitorKey = await invoke<string>("strip_monitor_key").catch(() => null);
   let enabled = settings?.enabled_widgets ?? ["cpu", "ram", "gpu", "disk", "conductor"];
   const hidden = settings?.hidden_widgets ?? [];
   // New registry widgets (added after a user's settings.json was written) default
   // to visible: adopt them into enabled_widgets once, unless already hidden.
-  const newIds = allWidgetIds().filter((id) => !enabled.includes(id) && !hidden.includes(id));
+  const newIds = newWidgetIds(allWidgetIds(), enabled, hidden);
   if (newIds.length > 0) {
     enabled = [...enabled, ...newIds];
-    invoke("reorder_widgets", { order: enabled }).catch(() => {});
+    // Awaited, then re-read: reorder_widgets persists (so persist's ensure_instances
+    // backfills the new widget's lane entry) but emits no widgets-changed, so rendering
+    // the pre-adoption settings would filter the new widget out for the whole session.
+    await invoke("reorder_widgets", { order: enabled }).catch(() => {});
+    settings = (await invoke<Settings>("get_settings").catch(() => null)) ?? settings;
   }
   row = document.getElementById("strip")!;
 

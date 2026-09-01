@@ -3,6 +3,8 @@ import {
   fmtClock,
   instanceIdFor,
   overlayDims,
+  idsForMonitor,
+  newWidgetIds,
   overlayRenderer,
   placementOf,
   stripNeedsRemount,
@@ -156,5 +158,53 @@ describe("overlayRenderer", () => {
 
     expect(withFlyout).toEqual(["flyout"]);
     expect(tileOnly).toEqual(["tile"]);
+  });
+});
+
+describe("idsForMonitor", () => {
+  const settings = {
+    monitor_widgets: {
+      "": [
+        { instance_id: "ram#1", widget_id: "ram" },
+        { instance_id: "cpu#1", widget_id: "cpu" },
+      ],
+      DISPLAY2: [{ instance_id: "gpu#1", widget_id: "gpu" }],
+    },
+  } as unknown as Settings;
+
+  it("keeps only its own lane's widgets, ordered by ids not by the lane", () => {
+    expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "")).toEqual(["cpu", "ram"]);
+    expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "DISPLAY2")).toEqual(["gpu"]);
+  });
+
+  // A blank strip is a worse failure than a duplicated one, so every unresolved
+  // case falls through to the full list rather than to nothing.
+  it("returns the full list when the key is unresolved, absent or empty", () => {
+    expect(idsForMonitor(["cpu", "gpu"], settings, null)).toEqual(["cpu", "gpu"]);
+    expect(idsForMonitor(["cpu", "gpu"], settings, "DISPLAY9")).toEqual(["cpu", "gpu"]);
+    expect(idsForMonitor(["cpu", "gpu"], { monitor_widgets: { "": [] } } as unknown as Settings, "")).toEqual(
+      ["cpu", "gpu"],
+    );
+    expect(idsForMonitor(["cpu", "gpu"], null, "")).toEqual(["cpu", "gpu"]);
+  });
+
+  // The todo-60 regression: an id adopted into enabled_widgets but not yet backed by
+  // a lane entry renders nowhere, which is why main() re-reads settings after adopting.
+  it("drops an enabled id that has no instance in any lane", () => {
+    expect(idsForMonitor(["cpu", "pomodoro"], settings, "")).toEqual(["cpu"]);
+  });
+});
+
+describe("newWidgetIds", () => {
+  it("returns registry ids the settings file has never seen", () => {
+    expect(newWidgetIds(["cpu", "ram", "spotify"], ["cpu", "ram"], [])).toEqual(["spotify"]);
+  });
+
+  it("skips one the user already hid, so adoption never un-hides it", () => {
+    expect(newWidgetIds(["cpu", "spotify"], ["cpu"], ["spotify"])).toEqual([]);
+  });
+
+  it("returns nothing when settings already covers the whole registry", () => {
+    expect(newWidgetIds(["cpu", "ram"], ["ram", "cpu"], [])).toEqual([]);
   });
 });
