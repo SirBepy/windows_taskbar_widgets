@@ -61,7 +61,8 @@ node .claude/skills/cdp-drive/drive.mjs <command>
 | `strips` | Per live strip window: its tiles' widget + instance ids, and the row width |
 | `settings` | Opens Settings > Widgets, dumps lane heads, per-lane tiles, palette, config rows |
 | `shot <out-dir>` | Screenshots the settings page and the lanes block |
-| `click <selector>` | A real pointer click in Settings > Widgets |
+| `click <selector>` | A real pointer click in Settings > Widgets, with a raw-mouse fallback |
+| `select <selector> <value>` | Sets a dropdown, e.g. the Placement select, and reports the config rows after |
 | `drag <widget> <lane>` | Drags a preview tile into lane N (0-based), then reports every lane |
 | `eval <page> <js>` | Runs an expression in a page: `strip`, `settings`, `flyout`, `overlay`, or a URL substring |
 
@@ -87,6 +88,12 @@ of its own and needs none.
   verified without touching Joe's desktop.
 - **Preview tiles listen to `pointerdown` for drag**, so a DOM `.click()` does nothing. Use a
   real Playwright click, and a real `mouse.down`/`move`/`up` sequence for a drag.
+- **A kit toggle's real `input` is 0x0 and `opacity: 0`** - the clickable surface is
+  `.kit-toggle-track`. Playwright also refuses any element inside a `label` whose first labelable
+  control is disabled, reporting "element is not enabled" about a plain `span`. `click` falls back
+  to a raw `mouse.click` at the element's centre for exactly that case; if the fallback fires and
+  nothing happens, the click is reaching the wrong control and that is an app bug, not a driver
+  one (it was, on 2026-09-01 - see commit `308abd0`).
 
 ## Output paths
 

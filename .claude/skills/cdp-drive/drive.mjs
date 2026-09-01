@@ -33,6 +33,7 @@ function usage(msg) {
       "  settings                open Settings > Widgets and dump the lanes/palette state",
       "  shot <out-dir>          screenshot the settings page and the lanes block",
       "  click <selector>        real pointer click in Settings > Widgets (a DOM .click() is ignored)",
+      "  select <selector> <v>   set a Settings > Widgets dropdown (e.g. the Placement select)",
       "  drag <widget> <lane>    drag a preview tile into lane N (0-based), then report both lanes",
       "  eval <page> <js>        run JS in a page (strip|settings|flyout|overlay|<url substring>)",
     ].join("\n"),
@@ -147,15 +148,46 @@ function laneState(page) {
 }
 
 // A real pointer click, because the preview tiles listen to pointerdown for drag and ignore
-// a DOM .click() entirely.
+// a DOM .click() entirely. Falls back to a raw mouse click at the element's centre: the kit's
+// toggle track sits inside a `label` whose first labelable control is a disabled range input,
+// so Playwright reads the whole label as disabled and refuses the actionability check.
 async function cmdClick(selector) {
   if (!selector) usage("click needs a selector");
   const { browser, pages } = await connect();
   const [page] = pick(pages, "settings");
   await openWidgetsSection(page);
-  await page.click(selector);
+  try {
+    await page.click(selector, { timeout: 5000 });
+    console.log("clicked", selector);
+  } catch {
+    const el = await page.$(selector);
+    if (!el) throw new Error(`no element matched ${selector}`);
+    const box = await el.boundingBox();
+    if (!box) throw new Error(`${selector} has no layout box to click`);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    console.log("clicked", selector, "(raw mouse fallback)");
+  }
   await page.waitForTimeout(400);
-  console.log("clicked", selector);
+  await browser.close();
+}
+
+async function cmdSelect(selector, value) {
+  if (!selector || value === undefined) usage("select needs a selector and a value");
+  const { browser, pages } = await connect();
+  const [page] = pick(pages, "settings");
+  await openWidgetsSection(page);
+  await page.selectOption(selector, value);
+  await page.waitForTimeout(600);
+  console.log(
+    "selected",
+    value,
+    "->",
+    JSON.stringify(
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".wsf-config .kit-row-label")].map((l) => l.textContent.trim()),
+      ),
+    ),
+  );
   await browser.close();
 }
 
@@ -208,6 +240,7 @@ const commands = {
   settings: cmdSettings,
   shot: cmdShot,
   click: cmdClick,
+  select: cmdSelect,
   drag: cmdDrag,
   eval: cmdEval,
 };
