@@ -69,9 +69,8 @@ export interface Settings {
   monitor_widgets: Record<string, StripInstance[]>;
 }
 
-/** The instance placing `widgetId`, searched across every monitor's lane. Exactly
- * one match exists for anything the live strip can render today (no UI yet places
- * two copies of one kind), so "#1" is a safe fallback if none is found. */
+/** The first instance placing `widgetId`, across every lane. Only for callers that know a
+ * kind and nothing else (an overlay window); the strip uses `instancesForMonitor`. */
 export function instanceIdFor(settings: Settings | null | undefined, widgetId: string): string {
   for (const instances of Object.values(settings?.monitor_widgets ?? {})) {
     const match = instances.find((si) => si.widget_id === widgetId);
@@ -95,30 +94,41 @@ function isOverlayPlaced(
   return placementOf(settings, id).kind === "overlay";
 }
 
-/** Ids that render as strip tiles: enabled widgets minus ones placed as floating overlays. */
-export function stripTileIds(ids: string[], settings: Settings | null | undefined): string[] {
-  return ids.filter((id) => !isOverlayPlaced(settings, id));
+/** Mirrors settings.rs's `is_active`: hidden_widgets carries instance ids and bare kinds at once. */
+function isInstanceHidden(settings: Settings | null | undefined, si: StripInstance): boolean {
+  const hidden = settings?.hidden_widgets ?? [];
+  return hidden.includes(si.instance_id) || hidden.includes(si.widget_id);
+}
+
+export function stripTileInstances(
+  instances: StripInstance[],
+  settings: Settings | null | undefined,
+): StripInstance[] {
+  return instances.filter(
+    (si) => !isInstanceHidden(settings, si) && !isOverlayPlaced(settings, si.widget_id),
+  );
 }
 
 /** True when the strip must tear down/remount: tile membership or order changed.
  * Config-only changes (e.g. show_temp) reach mounted tiles via subscribeSettings instead. */
-export function stripNeedsRemount(prevIds: string[], nextIds: string[]): boolean {
-  return prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
+export function stripNeedsRemount(prev: StripInstance[], next: StripInstance[]): boolean {
+  return prev.length !== next.length || prev.some((si, i) => si.instance_id !== next[i].instance_id);
 }
 
-/** One strip window's share of `ids`, in the lane's own order - each monitor orders its
- * tiles independently, which is the whole point of the lanes UI. `ids` still gates
- * membership so a stale lane entry cannot resurrect a disabled widget. An unresolved or
- * empty lane returns `ids` whole: a blank strip is a worse failure than a duplicated one. */
-export function idsForMonitor(
+/** One strip window's share of `ids`, in the lane's own order. Instances, not kinds: a lane
+ * may hold two copies of one kind and the tile menu must act on the one right-clicked. An
+ * unresolved or empty lane returns `ids` whole - a blank strip is worse than a duplicated one. */
+export function instancesForMonitor(
   ids: string[],
   settings: Settings | null | undefined,
   monitorKey: string | null,
-): string[] {
-  if (monitorKey === null) return ids;
+): StripInstance[] {
+  const whole = () =>
+    ids.map((id) => ({ instance_id: instanceIdFor(settings, id), widget_id: id }));
+  if (monitorKey === null) return whole();
   const instances = settings?.monitor_widgets?.[monitorKey];
-  if (!instances || instances.length === 0) return ids;
-  return instances.map((si) => si.widget_id).filter((id) => ids.includes(id));
+  if (!instances || instances.length === 0) return whole();
+  return instances.filter((si) => ids.includes(si.widget_id));
 }
 
 /** Registry widgets a user's settings.json has never seen, minus any they already hid. */

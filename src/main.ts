@@ -2,16 +2,16 @@ import "@phosphor-icons/web/regular";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { runAutoUpdateCheck } from "../vendor/tauri_kit/frontend/updater/auto-check";
-import { allWidgetIds, widgetsFor, widgetById } from "./widgets/registry";
+import { allWidgetIds, widgetById } from "./widgets/registry";
 import { reportErrors } from "./shared/report-errors";
 import {
   applyOpacity,
-  idsForMonitor,
-  instanceIdFor,
+  instancesForMonitor,
   newWidgetIds,
   Settings,
+  StripInstance,
   stripNeedsRemount,
-  stripTileIds,
+  stripTileInstances,
   TaskbarWidget,
 } from "./shared/widget";
 
@@ -29,7 +29,7 @@ const HOVER_OPEN_DELAY_MS = 250;
 
 let row: HTMLElement;
 let tileCleanups: (() => void)[] = [];
-let lastVisibleIds: string[] = [];
+let lastVisibleInstances: StripInstance[] = [];
 // Resolved once at boot from `strip_monitor_key`, then reused for every re-render:
 // the window is destroyed and rebuilt if its monitor goes away, so this cannot
 // change for a live window. `null` means the invoke rejected.
@@ -81,35 +81,38 @@ function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
   };
 }
 
-function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget, settings: Settings | null) {
+function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget, instanceId: string) {
   tile.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     invoke("show_tile_menu", {
-      instanceId: instanceIdFor(settings, widget.id),
+      instanceId,
       items: widget.menuItems?.() ?? [],
     }).catch(() => {});
   });
 }
 
-const idsForThisWindow = (ids: string[], settings: Settings | null) =>
-  idsForMonitor(ids, settings, monitorKey);
+const visibleInstances = (ids: string[], settings: Settings | null) =>
+  stripTileInstances(instancesForMonitor(ids, settings, monitorKey), settings);
 
 // A widget placed as a floating overlay gets its own window instead of a tile, so
 // it is dropped here rather than filtered out of enabled_widgets (which would lose
 // its position in the strip if the user moves it back).
-function renderTiles(ids: string[], settings: Settings | null) {
-  lastVisibleIds = stripTileIds(idsForThisWindow(ids, settings), settings);
+function renderTiles(instances: StripInstance[]) {
+  lastVisibleInstances = instances;
   tileCleanups.forEach((stop) => stop());
   tileCleanups = [];
   row.replaceChildren();
-  for (const widget of widgetsFor(lastVisibleIds)) {
+  for (const si of instances) {
+    const widget = widgetById(si.widget_id);
+    if (!widget) continue;
     const tile = document.createElement("div");
     tile.className = "tile";
     tile.dataset.widget = widget.id;
+    tile.dataset.instance = si.instance_id;
     row.appendChild(tile);
     tileCleanups.push(widget.mountTile(tile));
     tileCleanups.push(wireFlyoutHover(tile, widget));
-    wireContextMenu(tile, widget, settings);
+    wireContextMenu(tile, widget, si.instance_id);
   }
 }
 
@@ -132,7 +135,7 @@ async function main() {
   row = document.getElementById("strip")!;
 
   applyOpacity(settings);
-  renderTiles(enabled, settings);
+  renderTiles(visibleInstances(enabled, settings));
   const forceReport = reportStripWidth(row);
 
   listen("widgets-changed", async () => {
@@ -140,8 +143,9 @@ async function main() {
     applyOpacity(s);
     // Config-only saves (opacity, margin, hide_from_capture, show_temp...) reach mounted
     // tiles via subscribeSettings; only a tile-membership/order change remounts the strip.
-    if (s && stripNeedsRemount(lastVisibleIds, stripTileIds(idsForThisWindow(s.enabled_widgets, s), s))) {
-      renderTiles(s.enabled_widgets, s);
+    if (s) {
+      const next = visibleInstances(s.enabled_widgets, s);
+      if (stripNeedsRemount(lastVisibleInstances, next)) renderTiles(next);
     }
     forceReport();
   });

@@ -7,14 +7,16 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.resolve({ mem_tot
 vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}) }));
 
 import { makeDividerId } from "../shared/divider";
-import { allWidgetIds, widgetById, widgetsFor } from "./registry";
+import { allWidgetIds, widgetById } from "./registry";
 
 describe("registry routes divider ids alongside real widgets", () => {
-  it("widgetsFor keeps divider entries in place, duplicates included", () => {
+  // main.ts resolves one lane instance at a time, so two dividers in one strip must
+  // each resolve to their own widget rather than collapsing onto a shared one.
+  it("widgetById keeps two divider ids distinct alongside real widgets", () => {
     const d1 = makeDividerId();
     const d2 = makeDividerId();
     const ids = ["cpu", d1, "ram", d2];
-    expect(widgetsFor(ids).map((w) => w.id)).toEqual(ids);
+    expect(ids.map((id) => widgetById(id)?.id)).toEqual(ids);
   });
 
   it("widgetById synthesizes a divider widget with no flyout/menu/config", () => {
@@ -26,8 +28,8 @@ describe("registry routes divider ids alongside real widgets", () => {
     expect(w?.configFields).toBeUndefined();
   });
 
-  it("widgetsFor drops an id that matches neither a real widget nor the divider prefix", () => {
-    expect(widgetsFor(["not-a-real-widget"])).toEqual([]);
+  it("widgetById returns undefined for an id matching neither a real widget nor the divider prefix", () => {
+    expect(widgetById("not-a-real-widget")).toBeUndefined();
   });
 
   // main.ts's adopt-new-ids step diffs enabled_widgets against allWidgetIds(), so a

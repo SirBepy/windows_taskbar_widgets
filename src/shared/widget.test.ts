@@ -3,15 +3,17 @@ import {
   fmtClock,
   instanceIdFor,
   overlayDims,
-  idsForMonitor,
+  instancesForMonitor,
   newWidgetIds,
   overlayRenderer,
   placementOf,
   stripNeedsRemount,
-  stripTileIds,
+  stripTileInstances,
   type Settings,
   type TaskbarWidget,
 } from "./widget";
+
+const si = (widgetId: string, n = 1) => ({ instance_id: `${widgetId}#${n}`, widget_id: widgetId });
 
 const noop = () => () => {};
 // Tests run in vitest's node environment, so there is no real DOM to hand a renderer.
@@ -36,17 +38,31 @@ describe("placementOf", () => {
   });
 });
 
-describe("stripTileIds", () => {
-  it("returns all ids when nothing is overlay-placed", () => {
-    expect(stripTileIds(["cpu", "ram"], null)).toEqual(["cpu", "ram"]);
+describe("stripTileInstances", () => {
+  it("returns every instance when nothing is hidden or overlay-placed", () => {
+    expect(stripTileInstances([si("cpu"), si("ram")], null)).toEqual([si("cpu"), si("ram")]);
   });
 
-  it("drops ids placed as a floating overlay", () => {
+  it("drops instances whose kind is placed as a floating overlay", () => {
     const settings = {
       widget_placement: { cpu: { kind: "overlay", monitor: "", x: 0, y: 0 } },
     } as unknown as Settings;
 
-    expect(stripTileIds(["cpu", "ram"], settings)).toEqual(["ram"]);
+    expect(stripTileInstances([si("cpu"), si("ram")], settings)).toEqual([si("ram")]);
+  });
+
+  // apply_hide leaves a kind in enabled_widgets while a sibling copy stays visible,
+  // so per-instance hiding only reaches the strip if the renderer filters on it.
+  it("drops the hidden copy of a kind and keeps its visible sibling", () => {
+    const settings = { hidden_widgets: ["cpu#1"] } as unknown as Settings;
+
+    expect(stripTileInstances([si("cpu", 1), si("cpu", 2)], settings)).toEqual([si("cpu", 2)]);
+  });
+
+  it("drops every copy when hidden_widgets carries the bare kind", () => {
+    const settings = { hidden_widgets: ["cpu"] } as unknown as Settings;
+
+    expect(stripTileInstances([si("cpu", 1), si("cpu", 2), si("ram")], settings)).toEqual([si("ram")]);
   });
 });
 
@@ -70,15 +86,22 @@ describe("instanceIdFor", () => {
 
 describe("stripNeedsRemount", () => {
   it("is false when membership and order are unchanged", () => {
-    expect(stripNeedsRemount(["cpu", "ram"], ["cpu", "ram"])).toBe(false);
+    expect(stripNeedsRemount([si("cpu"), si("ram")], [si("cpu"), si("ram")])).toBe(false);
   });
 
   it("is true on a length change", () => {
-    expect(stripNeedsRemount(["cpu"], ["cpu", "ram"])).toBe(true);
+    expect(stripNeedsRemount([si("cpu")], [si("cpu"), si("ram")])).toBe(true);
   });
 
-  it("is true on a reorder even with the same ids", () => {
-    expect(stripNeedsRemount(["cpu", "ram"], ["ram", "cpu"])).toBe(true);
+  it("is true on a reorder even with the same instances", () => {
+    expect(stripNeedsRemount([si("cpu"), si("ram")], [si("ram"), si("cpu")])).toBe(true);
+  });
+
+  // The 250ms poller re-renders on every widgets-changed, so a lane holding two
+  // copies of one kind must still compare equal to itself or the strip remounts forever.
+  it("is false for an unchanged lane that holds two copies of one kind", () => {
+    const lane = [si("cpu", 1), si("ram"), si("cpu", 2)];
+    expect(stripNeedsRemount(lane, [...lane])).toBe(false);
   });
 });
 
@@ -161,39 +184,45 @@ describe("overlayRenderer", () => {
   });
 });
 
-describe("idsForMonitor", () => {
+describe("instancesForMonitor", () => {
   const settings = {
     monitor_widgets: {
-      "": [
-        { instance_id: "ram#1", widget_id: "ram" },
-        { instance_id: "cpu#1", widget_id: "cpu" },
-      ],
-      DISPLAY2: [{ instance_id: "gpu#1", widget_id: "gpu" }],
+      "": [si("ram"), si("cpu")],
+      DISPLAY2: [si("gpu")],
     },
   } as unknown as Settings;
 
   // Lane order wins over `ids` order: each monitor orders its own tiles, which is
   // what the lanes UI writes and what makes a per-monitor reorder mean anything.
-  it("keeps only its own lane's widgets, in the lane's order", () => {
-    expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "")).toEqual(["ram", "cpu"]);
-    expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "DISPLAY2")).toEqual(["gpu"]);
+  it("keeps only its own lane's instances, in the lane's order", () => {
+    expect(instancesForMonitor(["cpu", "gpu", "ram"], settings, "")).toEqual([si("ram"), si("cpu")]);
+    expect(instancesForMonitor(["cpu", "gpu", "ram"], settings, "DISPLAY2")).toEqual([si("gpu")]);
+  });
+
+  // The whole point of the change: both copies survive, each addressable on its own id.
+  it("returns both copies of a duplicated kind, distinctly", () => {
+    const dup = {
+      monitor_widgets: { "": [si("cpu", 1), si("ram"), si("cpu", 2)] },
+    } as unknown as Settings;
+
+    expect(instancesForMonitor(["cpu", "ram"], dup, "")).toEqual([si("cpu", 1), si("ram"), si("cpu", 2)]);
   });
 
   // A blank strip is a worse failure than a duplicated one, so every unresolved
   // case falls through to the full list rather than to nothing.
   it("returns the full list when the key is unresolved, absent or empty", () => {
-    expect(idsForMonitor(["cpu", "gpu"], settings, null)).toEqual(["cpu", "gpu"]);
-    expect(idsForMonitor(["cpu", "gpu"], settings, "DISPLAY9")).toEqual(["cpu", "gpu"]);
-    expect(idsForMonitor(["cpu", "gpu"], { monitor_widgets: { "": [] } } as unknown as Settings, "")).toEqual(
-      ["cpu", "gpu"],
-    );
-    expect(idsForMonitor(["cpu", "gpu"], null, "")).toEqual(["cpu", "gpu"]);
+    expect(instancesForMonitor(["cpu", "gpu"], settings, null)).toEqual([si("cpu"), si("gpu")]);
+    expect(instancesForMonitor(["cpu", "gpu"], settings, "DISPLAY9")).toEqual([si("cpu"), si("gpu")]);
+    expect(
+      instancesForMonitor(["cpu", "gpu"], { monitor_widgets: { "": [] } } as unknown as Settings, ""),
+    ).toEqual([si("cpu"), si("gpu")]);
+    expect(instancesForMonitor(["cpu", "gpu"], null, "")).toEqual([si("cpu"), si("gpu")]);
   });
 
   // The todo-60 regression: an id adopted into enabled_widgets but not yet backed by
   // a lane entry renders nowhere, which is why main() re-reads settings after adopting.
   it("drops an enabled id that has no instance in any lane", () => {
-    expect(idsForMonitor(["cpu", "pomodoro"], settings, "")).toEqual(["cpu"]);
+    expect(instancesForMonitor(["cpu", "pomodoro"], settings, "")).toEqual([si("cpu")]);
   });
 });
 
