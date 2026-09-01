@@ -12,6 +12,13 @@ import {
   SystemStats,
 } from "./system-shared";
 
+// Afterburner can start or quit at any poll, so an arriving temperature is data,
+// not a config toggle: the slot holds its width and blanks rather than collapsing.
+const tempSlot = (temp: number | null) =>
+  html`<span class="tile-unit ${temp == null ? "reserved" : ""}"
+    ><span class="num">${temp == null ? "" : temp.toFixed(0)}</span>°</span
+  >`;
+
 function tileTemplate(s: SystemStats | null, showTemp: boolean) {
   if (!s) return html`<span class="muted">…</span>`;
   return html`
@@ -19,9 +26,7 @@ function tileTemplate(s: SystemStats | null, showTemp: boolean) {
       <span class="tile-label">CPU</span>
       <span class="tile-value">
         <span class="tile-pct"><span class="num">${s.cpu_pct.toFixed(0)}</span>%</span>
-        ${s.cpu_temp_c != null && showTemp
-          ? html`<span class="tile-unit"><span class="num">${s.cpu_temp_c.toFixed(0)}</span>°</span>`
-          : null}
+        ${showTemp ? tempSlot(s.cpu_temp_c) : null}
       </span>
     </div>
   `;

@@ -23,15 +23,22 @@ const readCfg = (cfg: Record<string, unknown>): GpuCfg => ({
   showPercent: readShowPercent(cfg),
 });
 
+// poller.rs::read_gpu is a chain of per-poll `.ok()?` NVML reads, so a machine that
+// has a GPU can still report None on any single tick. Collapsing the whole tile then
+// would resize the strip, so once a GPU has been seen the tile stays and blanks.
+let gpuSeen = false;
+
 function tileTemplate(s: SystemStats | null, cfg: GpuCfg) {
-  if (!s?.gpu) return html``;
+  if (s?.gpu) gpuSeen = true;
+  else if (!gpuSeen) return html``;
+  const g = s?.gpu ?? null;
   return html`
-    <div class="tile-stat ${heat(s.gpu.util_pct)}">
+    <div class="tile-stat ${g ? heat(g.util_pct) : ""}">
       <span class="tile-label">GPU</span>
-      <span class="tile-value">
-        <span class="tile-pct"><span class="num">${s.gpu.util_pct}</span>%</span>
+      <span class="tile-value ${g ? "" : "reserved"}">
+        <span class="tile-pct"><span class="num">${g ? g.util_pct : ""}</span>%</span>
         ${cfg.showTemp
-          ? html`<span class="tile-unit"><span class="num">${s.gpu.temp_c}</span>°</span>`
+          ? html`<span class="tile-unit"><span class="num">${g ? g.temp_c : ""}</span>°</span>`
           : null}
       </span>
     </div>

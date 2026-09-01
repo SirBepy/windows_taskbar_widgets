@@ -106,6 +106,14 @@
   opacity: 0.55;
 }
 
+/* Reserved-but-blank slot. visibility keeps the box, so a reading arriving
+   mid-session (Afterburner starting, an NVML tick recovering) never shifts the
+   tiles to its right - CLAUDE.md's fixed-size rule. */
+.tile-value.reserved,
+.tile-value .reserved {
+  visibility: hidden;
+}
+
 /* min-width alone doesn't stop jitter: proportional digits (e.g. "1" narrower
    than "0") still shift inside a 3ch box, so tabular-nums must pair with it.
    +2px pads past a measured sub-pixel gap where 3ch computes marginally
