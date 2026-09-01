@@ -320,6 +320,7 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::MainEventsCleared) {
                 overlay::drain_pending(app);
+                strip::drain_pending(app);
             }
         });
 }

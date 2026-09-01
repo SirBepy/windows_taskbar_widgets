@@ -1,7 +1,8 @@
 use crate::monitor_widgets::MonitorWidgets;
 use crate::settings::SettingsState;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL_PREFIX: &str = "strip-";
@@ -172,6 +173,9 @@ pub fn reconcile(app: &AppHandle) {
             }
         }
     }
+    // Same pass as the close loop above, so one place decides what is wanted: a built
+    // window is closed there, a build still queued is dropped here.
+    prune_pending(&mut pending_lock(), &wanted);
 
     for label in &wanted {
         if label == PRIMARY_LABEL || app.get_webview_window(label).is_some() {
@@ -182,17 +186,68 @@ pub fn reconcile(app: &AppHandle) {
         else {
             continue;
         };
+        // Queued, not hopped through run_on_main_thread: reconcile runs off the main
+        // thread (250ms poller, save_settings) and a build() dispatched into one of the
+        // event loop's own dispatches never returns (todo 46). Logged on first queue
+        // only - the poller would otherwise write this line 4x/sec.
+        if queue_build(&device_name, label) {
+            log::info!("strip {device_name}: queued build of {label}");
+        }
+    }
+}
+
+/// A queued build: device_name, window label.
+type Pending = (String, String);
+
+/// Strip windows waiting to be built, drained by `drain_pending` on the event loop's own
+/// tick. Mirrors `overlay.rs`'s queue, for the same reason and with the same shape.
+static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+static POISON_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// Recovers from poison rather than skipping: the queue is plain data, and a skip would
+/// stop every secondary strip from ever being built again. Logged once, not per call.
+fn pending_lock() -> MutexGuard<'static, Vec<Pending>> {
+    PENDING.lock().unwrap_or_else(|poisoned| {
+        if !POISON_LOGGED.swap(true, Ordering::SeqCst) {
+            log::error!("strip pending build queue lock poisoned, recovering");
+        }
+        poisoned.into_inner()
+    })
+}
+
+/// Pure: queue `entry` unless its label is already queued. Returns whether it was added.
+/// Unlike overlay's, a strip entry carries no geometry, so a re-queue has nothing to update.
+fn upsert_pending(queue: &mut Vec<Pending>, entry: Pending) -> bool {
+    if queue.iter().any(|(_, l)| *l == entry.1) {
+        return false;
+    }
+    queue.push(entry);
+    true
+}
+
+/// Pure: drop queued builds whose label `reconcile` no longer wants.
+fn prune_pending(queue: &mut Vec<Pending>, wanted_labels: &[String]) {
+    queue.retain(|(_, l)| wanted_labels.contains(l));
+}
+
+fn queue_build(device_name: &str, label: &str) -> bool {
+    upsert_pending(&mut pending_lock(), (device_name.to_string(), label.to_string()))
+}
+
+/// Builds the queued strip windows on the event loop's own tick, called from
+/// `RunEvent::MainEventsCleared`. See `overlay::drain_pending` for why the build cannot
+/// happen inside a dispatch instead.
+pub fn drain_pending(app: &AppHandle) {
+    // Take and drop the guard before building: build() creates a real WebView2 and is
+    // slow, and reconcile() runs on autohide's poller thread while it does.
+    let queued = std::mem::take(&mut *pending_lock());
+    for (device_name, label) in queued {
+        if app.get_webview_window(&label).is_some() {
+            continue;
+        }
         log::info!("strip {device_name}: building {label}");
-        // build() must run on the main thread; reconcile() is also called from
-        // save_settings (an IPC handler, off it) - same run_on_main_thread hop
-        // overlay::reconcile uses for the identical reason.
-        let (app2, device2, label2) = (app.clone(), device_name.clone(), label.clone());
-        if let Err(e) = app.run_on_main_thread(move || {
-            if let Err(e) = build(&app2, &device2, &label2) {
-                log::error!("strip {device2}: {e}");
-            }
-        }) {
-            log::error!("strip {device_name}: failed to dispatch build to main thread: {e}");
+        if let Err(e) = build(app, &device_name, &label) {
+            log::error!("strip {device_name}: {e}");
         }
     }
 }
@@ -293,5 +348,40 @@ mod tests {
     fn monitor_key_for_label_no_match_returns_empty() {
         let keys = vec![r"\\.\DISPLAY2".to_string()];
         assert_eq!(monitor_key_for_label(&keys, Some(r"\\.\DISPLAY1"), "strip-DISPLAY3"), "");
+    }
+
+    fn pending(label: &str) -> Pending {
+        (r"\\.\DISPLAY2".to_string(), label.to_string())
+    }
+
+    #[test]
+    fn upsert_pending_adds_a_label_not_yet_queued() {
+        let mut queue = vec![];
+        assert!(upsert_pending(&mut queue, pending("strip-DISPLAY2")));
+        assert_eq!(queue.len(), 1);
+    }
+
+    #[test]
+    fn upsert_pending_reports_a_label_already_queued_as_not_added() {
+        // The 250ms poller re-queues every tick until the window exists; without this
+        // the queue would grow by one entry per tick.
+        let mut queue = vec![pending("strip-DISPLAY2")];
+        assert!(!upsert_pending(&mut queue, pending("strip-DISPLAY2")));
+        assert_eq!(queue.len(), 1);
+    }
+
+    #[test]
+    fn prune_pending_drops_a_label_no_longer_wanted() {
+        let mut queue = vec![pending("strip-DISPLAY2"), pending("strip-DISPLAY3")];
+        prune_pending(&mut queue, &["strip-DISPLAY3".to_string()]);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].1, "strip-DISPLAY3");
+    }
+
+    #[test]
+    fn prune_pending_with_only_the_primary_wanted_empties_the_queue() {
+        let mut queue = vec![pending("strip-DISPLAY2")];
+        prune_pending(&mut queue, &[PRIMARY_LABEL.to_string()]);
+        assert!(queue.is_empty());
     }
 }
