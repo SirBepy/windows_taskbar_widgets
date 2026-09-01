@@ -1,6 +1,7 @@
 use crate::settings::{OverlaySpec, Placement, SettingsState};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use tauri::{
     AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
@@ -128,14 +129,19 @@ pub fn reconcile(app: &AppHandle) {
         .map(|(instance_id, widget_id, spec)| (label_for(&instance_id), instance_id, widget_id, spec))
         .collect();
 
+    let wanted_labels: Vec<String> = wanted.iter().map(|(l, _, _, _)| l.clone()).collect();
     for (label, win) in app.webview_windows() {
-        if label.starts_with(LABEL_PREFIX) && !wanted.iter().any(|(l, _, _, _)| *l == label) {
+        if label.starts_with(LABEL_PREFIX) && !wanted_labels.contains(&label) {
             let _ = win.close();
             if let Ok(mut map) = app.state::<OverlayState>().0.lock() {
                 map.remove(&label);
             }
         }
     }
+    // Same pass, so one place decides what is wanted: a window already built is closed
+    // above, a build still queued is dropped here. Without this, a placement hidden
+    // before the next tick is still built, then only closed by some later reconcile.
+    prune_pending(&mut pending_lock(), &wanted_labels);
 
     for (label, instance_id, widget_id, spec) in &wanted {
         match app.get_webview_window(label) {
@@ -148,16 +154,45 @@ pub fn reconcile(app: &AppHandle) {
     }
 }
 
+/// A queued build: instance_id, widget_id, window label, geometry.
+type Pending = (String, String, String, OverlaySpec);
+
 /// Overlay windows waiting to be built, drained by `drain_pending` on the event loop's
 /// own tick. Deduped by label: reconcile can run again before a tick drains the queue.
-static PENDING: Mutex<Vec<(String, String, String, OverlaySpec)>> = Mutex::new(Vec::new());
+static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
+static POISON_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// Recovers from poison rather than skipping, the way `save_settings` does: the queue is
+/// plain data, and a skip would stop every overlay build for the rest of the process.
+/// Logged once, not per call - `drain_pending` runs on every event-loop tick.
+fn pending_lock() -> MutexGuard<'static, Vec<Pending>> {
+    PENDING.lock().unwrap_or_else(|poisoned| {
+        if !POISON_LOGGED.swap(true, Ordering::SeqCst) {
+            log::error!("overlay pending build queue lock poisoned, recovering");
+        }
+        poisoned.into_inner()
+    })
+}
+
+/// Pure: queue `entry`, replacing any earlier queue of the same label. Replace, not skip:
+/// an overlay moved or resized between two ticks would otherwise build at the first
+/// queued geometry and stay there until an unrelated settings change re-applied it.
+fn upsert_pending(queue: &mut Vec<Pending>, entry: Pending) {
+    match queue.iter_mut().find(|(_, _, l, _)| *l == entry.2) {
+        Some(slot) => *slot = entry,
+        None => queue.push(entry),
+    }
+}
+
+/// Pure: drop queued builds whose label `reconcile` no longer wants.
+fn prune_pending(queue: &mut Vec<Pending>, wanted_labels: &[String]) {
+    queue.retain(|(_, _, l, _)| wanted_labels.contains(l));
+}
 
 fn queue_build(instance_id: &str, widget_id: &str, label: &str, spec: &OverlaySpec) {
-    let Ok(mut q) = PENDING.lock() else { return };
-    if q.iter().any(|(_, _, l, _)| l == label) {
-        return;
-    }
-    q.push((instance_id.to_string(), widget_id.to_string(), label.to_string(), spec.clone()));
+    let entry =
+        (instance_id.to_string(), widget_id.to_string(), label.to_string(), spec.clone());
+    upsert_pending(&mut pending_lock(), entry);
 }
 
 /// Builds the queued windows. Called from `RunEvent::MainEventsCleared`, i.e. between the
@@ -165,10 +200,9 @@ fn queue_build(instance_id: &str, widget_id: &str, label: &str, spec: &OverlaySp
 /// `run_on_main_thread` puts a task queued by `save_settings` - never returned, left the
 /// webview stranded on about:blank, and froze the whole app (todo 46, measured 2026-09-01).
 pub fn drain_pending(app: &AppHandle) {
-    let queued = match PENDING.lock() {
-        Ok(mut q) if !q.is_empty() => std::mem::take(&mut *q),
-        _ => return,
-    };
+    // Take and drop the guard before building: build() creates a real WebView2 and is
+    // slow, and reconcile() can run on another thread while it does.
+    let queued = std::mem::take(&mut *pending_lock());
     for (instance_id, widget_id, label, spec) in queued {
         if app.get_webview_window(&label).is_some() {
             continue;
@@ -242,4 +276,45 @@ pub fn monitor_at_point(app: AppHandle, x: i32, y: i32) -> Option<MonitorInfo> {
         height: m.size().height as f64 / scale,
         scale,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(label: &str, x: f64) -> Pending {
+        let spec = OverlaySpec { x, ..OverlaySpec::default() };
+        ("cpu#1".to_string(), "cpu".to_string(), label.to_string(), spec)
+    }
+
+    #[test]
+    fn upsert_pending_appends_a_label_not_yet_queued() {
+        let mut queue = vec![entry("overlay-a", 0.0)];
+        upsert_pending(&mut queue, entry("overlay-b", 0.0));
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue[1].2, "overlay-b");
+    }
+
+    #[test]
+    fn upsert_pending_replaces_the_spec_of_an_already_queued_label() {
+        let mut queue = vec![entry("overlay-a", 10.0)];
+        upsert_pending(&mut queue, entry("overlay-a", 250.0));
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].3.x, 250.0);
+    }
+
+    #[test]
+    fn prune_pending_drops_labels_no_longer_wanted() {
+        let mut queue = vec![entry("overlay-a", 0.0), entry("overlay-b", 0.0)];
+        prune_pending(&mut queue, &["overlay-b".to_string()]);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].2, "overlay-b");
+    }
+
+    #[test]
+    fn prune_pending_with_nothing_wanted_empties_the_queue() {
+        let mut queue = vec![entry("overlay-a", 0.0)];
+        prune_pending(&mut queue, &[]);
+        assert!(queue.is_empty());
+    }
 }
