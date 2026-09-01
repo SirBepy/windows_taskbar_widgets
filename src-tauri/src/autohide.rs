@@ -5,8 +5,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::taskbar::DetectedTaskbar;
 
-// toggle_strip is the sole writer; true means the user explicitly hid the strip,
-// so the poll below must skip entirely rather than auto-show it back.
+// toggle_all_strips is the sole writer; true means the user explicitly hid the strips,
+// so the poll below must skip entirely rather than auto-show them back.
 static USER_HIDDEN: AtomicBool = AtomicBool::new(false);
 
 // Set by a manual show; suppresses only the fullscreen hide condition, not
