@@ -39,19 +39,6 @@ pub fn taskbar_rect(_app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
     None
 }
 
-/// Monitor rect of the chosen taskbar's display, for callers that clamp to the screen
-/// the strip actually lives on. None means "couldn't detect", so callers keep their
-/// own primary-monitor fallback rather than clamping to something wrong.
-#[cfg(target_os = "windows")]
-pub fn selected_monitor_rect(app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
-    selected_taskbar(app).map(|t| t.monitor_rect)
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn selected_monitor_rect(_app: &AppHandle) -> Option<(i32, i32, i32, i32)> {
-    None
-}
-
 // An auto-hide taskbar slid off screen still leaves a ~2px sliver behind, so
 // "is it on screen" has to be a real overlap test, not a nonzero one.
 #[cfg(target_os = "windows")]
@@ -164,7 +151,7 @@ pub fn taskbar_hidden_for(taskbar: &DetectedTaskbar) -> bool {
 /// unconditionally to its own monitor via `StripState` - no user choice, it is
 /// pinned there by construction (Decision, per-monitor-phase2-plan.md).
 #[cfg(target_os = "windows")]
-fn taskbar_rect_for_window(app: &AppHandle, window: &tauri::Window) -> Option<(i32, i32, i32, i32)> {
+pub fn taskbar_rect_for_window(app: &AppHandle, window: &tauri::Window) -> Option<(i32, i32, i32, i32)> {
     if window.label() == crate::strip::PRIMARY_LABEL {
         return taskbar_rect(app);
     }
@@ -179,7 +166,7 @@ fn taskbar_rect_for_window(app: &AppHandle, window: &tauri::Window) -> Option<(i
 }
 
 #[cfg(not(target_os = "windows"))]
-fn taskbar_rect_for_window(_app: &AppHandle, _window: &tauri::Window) -> Option<(i32, i32, i32, i32)> {
+pub fn taskbar_rect_for_window(_app: &AppHandle, _window: &tauri::Window) -> Option<(i32, i32, i32, i32)> {
     None
 }
 
