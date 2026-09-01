@@ -253,7 +253,9 @@ pub fn run() {
                 let _ = win.show();
             }
             overlay::reconcile(&handle);
-            strip::reconcile(&handle);
+            // NOT strip::reconcile here: a secondary strip queued from setup is built on
+            // the event loop's very first MainEventsCleared and its webview never leaves
+            // about:blank. autohide's poller reconciles 250ms later, which builds fine.
             system_stats::spawn_poller(handle.clone());
             autohide::spawn_poller(handle.clone());
             bridge_conductor::spawn(handle.clone());
