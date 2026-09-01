@@ -30,9 +30,9 @@ const HOVER_OPEN_DELAY_MS = 250;
 let row: HTMLElement;
 let tileCleanups: (() => void)[] = [];
 let lastVisibleInstances: StripInstance[] = [];
-// Resolved once at boot from `strip_monitor_key`, then reused for every re-render:
-// the window is destroyed and rebuilt if its monitor goes away, so this cannot
-// change for a live window. `null` means the invoke rejected.
+// Re-resolved on every widgets-changed, not just at boot: apply_lanes retires the ""
+// migration lane and writes real device names, so a window that booted on "" would
+// otherwise look up a lane that no longer exists. `null` means the invoke rejected.
 let monitorKey: string | null = null;
 // Shared across tiles (only one can be hovered/dragged at a time) so drag-start
 // can cancel a pending hover-open without each tile tracking its own timer.
@@ -141,6 +141,7 @@ async function main() {
   listen("widgets-changed", async () => {
     const s = await invoke<Settings>("get_settings").catch(() => null);
     applyOpacity(s);
+    monitorKey = await invoke<string>("strip_monitor_key").catch(() => monitorKey);
     // Config-only saves (opacity, margin, hide_from_capture, show_temp...) reach mounted
     // tiles via subscribeSettings; only a tile-membership/order change remounts the strip.
     if (s) {
