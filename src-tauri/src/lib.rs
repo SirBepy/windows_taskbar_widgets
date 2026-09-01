@@ -304,6 +304,7 @@ pub fn run() {
             tile_menu::open_spotify,
             tile_menu::focus_or_launch_app,
             tile_menu::reorder_widgets,
+            tile_menu::set_lanes,
             taskbar::list_taskbar_monitors,
             spotify_smtc::get_spotify_now_playing,
             spotify_smtc::spotify_toggle_play_pause,

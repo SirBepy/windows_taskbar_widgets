@@ -1,4 +1,5 @@
-use crate::settings::Settings;
+use crate::settings::{Settings, StripInstance};
+use std::collections::HashMap;
 
 // "Edit this widget" opens the settings strip editor, which is still keyed by
 // widget kind (not per-placement), so the menu needs the kind back from the
@@ -78,11 +79,65 @@ pub(crate) fn apply_move(s: &mut Settings, instance_id: &str, dir: i32) -> Optio
     Some(monitor)
 }
 
+/// Replaces each named monitor's lane with `widget_ids`, in that order. Only the keys
+/// given are touched, so an unplugged monitor's saved lane is never mutated on absence.
+/// An instance already in that lane is reused rather than re-minted, so a reorder keeps
+/// each placement's hides and overlay geometry.
+pub(crate) fn apply_lanes(s: &mut Settings, lanes: &HashMap<String, Vec<String>>) {
+    for (monitor, widget_ids) in lanes {
+        let mut previous = s.monitor_widgets.0.remove(monitor).unwrap_or_default();
+        s.monitor_widgets.0.insert(monitor.clone(), Vec::with_capacity(widget_ids.len()));
+        for widget_id in widget_ids {
+            // Pushed as it is built, not collected then inserted: next_instance_id scans
+            // the live map, so two copies of one kind in one lane would otherwise both
+            // mint the same "#n".
+            let instance = match previous.iter().position(|si| &si.widget_id == widget_id) {
+                Some(i) => previous.remove(i),
+                None => StripInstance {
+                    instance_id: s.monitor_widgets.next_instance_id(widget_id),
+                    widget_id: widget_id.clone(),
+                },
+            };
+            s.monitor_widgets.0.entry(monitor.clone()).or_default().push(instance);
+        }
+    }
+    // Decision 2: a placement locks to a concrete device name, so the migration
+    // default's lane goes away the first time the lanes UI writes a real one.
+    if lanes.keys().any(|k| !k.is_empty()) {
+        s.monitor_widgets.0.remove("");
+    }
+    sync_enabled_widgets(s);
+}
+
+/// `enabled_widgets` is still the flat list every widget-kind-keyed reader works from
+/// (overlay::reconcile, poller.rs, bridge_pomodoro.rs), so it is rebuilt as the union of
+/// every lane. Existing relative order is kept; a kind that left every lane is pushed to
+/// hidden_widgets, or main.ts's newWidgetIds would re-adopt it on the next launch.
+fn sync_enabled_widgets(s: &mut Settings) {
+    let mut union: Vec<String> = Vec::new();
+    for si in s.monitor_widgets.all() {
+        if !union.contains(&si.widget_id) {
+            union.push(si.widget_id.clone());
+        }
+    }
+    for dropped in s.enabled_widgets.clone().into_iter().filter(|w| !union.contains(w)) {
+        if !s.hidden_widgets.contains(&dropped) {
+            s.hidden_widgets.push(dropped);
+        }
+    }
+    let mut next: Vec<String> = s.enabled_widgets.drain(..).filter(|w| union.contains(w)).collect();
+    for widget_id in union {
+        if !next.contains(&widget_id) {
+            next.push(widget_id);
+        }
+    }
+    s.enabled_widgets = next;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{MonitorWidgets, StripInstance};
-    use std::collections::HashMap;
+    use crate::settings::MonitorWidgets;
 
     fn instance(id: &str, widget_id: &str) -> StripInstance {
         StripInstance { instance_id: id.to_string(), widget_id: widget_id.to_string() }
@@ -128,6 +183,92 @@ mod tests {
         apply_hide(&mut s, "cpu#1");
 
         assert!(s.enabled_widgets.contains(&"cpu".to_string()));
+    }
+
+    fn lanes(pairs: &[(&str, &[&str])]) -> HashMap<String, Vec<String>> {
+        pairs
+            .iter()
+            .map(|(m, ids)| (m.to_string(), ids.iter().map(|s| s.to_string()).collect()))
+            .collect()
+    }
+
+    fn lane_instance_ids(s: &Settings, monitor: &str) -> Vec<String> {
+        s.monitor_widgets.instances_for(monitor).iter().map(|si| si.instance_id.clone()).collect()
+    }
+
+    #[test]
+    fn apply_lanes_reuses_an_existing_instance_id_when_a_lane_is_only_reordered() {
+        let mut s = two_monitor_settings();
+
+        apply_lanes(&mut s, &lanes(&[(r"\\.\DISPLAY2", &["gpu", "cpu"])]));
+
+        assert_eq!(lane_instance_ids(&s, r"\\.\DISPLAY2"), ["gpu#1", "cpu#2"]);
+    }
+
+    #[test]
+    fn apply_lanes_mints_a_distinct_id_for_each_copy_of_one_kind_in_the_same_lane() {
+        let mut s = Settings { monitor_widgets: MonitorWidgets::default(), ..Settings::default() };
+
+        apply_lanes(&mut s, &lanes(&[(r"\\.\DISPLAY1", &["cpu", "cpu"])]));
+
+        let ids = lane_instance_ids(&s, r"\\.\DISPLAY1");
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
+    }
+
+    #[test]
+    fn apply_lanes_drops_the_migration_default_lane_once_a_real_device_is_written() {
+        let mut s = two_monitor_settings();
+
+        apply_lanes(&mut s, &lanes(&[(r"\\.\DISPLAY1", &["cpu", "ram"])]));
+
+        assert!(s.monitor_widgets.instances_for("").is_empty());
+        assert_eq!(lane_instance_ids(&s, r"\\.\DISPLAY1").len(), 2);
+    }
+
+    #[test]
+    fn apply_lanes_never_touches_a_lane_it_was_not_given() {
+        let mut s = two_monitor_settings();
+
+        apply_lanes(&mut s, &lanes(&[("", &["cpu"])]));
+
+        assert_eq!(lane_instance_ids(&s, r"\\.\DISPLAY2"), ["cpu#2", "gpu#1"]);
+    }
+
+    #[test]
+    fn apply_lanes_rebuilds_enabled_widgets_as_the_union_of_every_lane() {
+        let mut s = two_monitor_settings();
+        s.enabled_widgets = vec!["cpu".to_string(), "ram".to_string(), "gpu".to_string()];
+
+        apply_lanes(&mut s, &lanes(&[(r"\\.\DISPLAY1", &["ram"]), (r"\\.\DISPLAY2", &["gpu"])]));
+
+        assert_eq!(s.enabled_widgets, ["ram", "gpu"]);
+    }
+
+    #[test]
+    fn apply_lanes_hides_a_kind_that_left_every_lane_so_it_is_not_re_adopted() {
+        // main.ts's newWidgetIds re-adopts anything in neither enabled nor hidden.
+        let mut s = two_monitor_settings();
+        s.enabled_widgets = vec!["cpu".to_string(), "ram".to_string(), "gpu".to_string()];
+
+        apply_lanes(&mut s, &lanes(&[("", &["cpu"]), (r"\\.\DISPLAY2", &["cpu"])]));
+
+        assert!(s.hidden_widgets.contains(&"ram".to_string()));
+        assert!(s.hidden_widgets.contains(&"gpu".to_string()));
+    }
+
+    #[test]
+    fn apply_lanes_leaves_an_already_hidden_kind_hidden_and_unlisted_once() {
+        // The lanes UI never sends a hidden widget, so an unrelated drag must not
+        // resurrect one, nor stack a second hidden_widgets entry for it.
+        let mut s = two_monitor_settings();
+        s.enabled_widgets = vec!["cpu".to_string(), "ram".to_string()];
+        s.hidden_widgets = vec!["gpu".to_string()];
+
+        apply_lanes(&mut s, &lanes(&[("", &["cpu", "ram"]), (r"\\.\DISPLAY2", &["cpu"])]));
+
+        assert!(!s.enabled_widgets.contains(&"gpu".to_string()));
+        assert_eq!(s.hidden_widgets.iter().filter(|h| *h == "gpu").count(), 1);
     }
 
     #[test]

@@ -172,8 +172,10 @@ describe("idsForMonitor", () => {
     },
   } as unknown as Settings;
 
-  it("keeps only its own lane's widgets, ordered by ids not by the lane", () => {
-    expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "")).toEqual(["cpu", "ram"]);
+  // Lane order wins over `ids` order: each monitor orders its own tiles, which is
+  // what the lanes UI writes and what makes a per-monitor reorder mean anything.
+  it("keeps only its own lane's widgets, in the lane's order", () => {
+    expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "")).toEqual(["ram", "cpu"]);
     expect(idsForMonitor(["cpu", "gpu", "ram"], settings, "DISPLAY2")).toEqual(["gpu"]);
   });
 

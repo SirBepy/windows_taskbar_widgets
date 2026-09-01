@@ -10,6 +10,18 @@ export function removeId(order: string[], id: string): string[] {
  * one share one path instead of needing a shift correction for the removal. */
 export function placeAt(order: string[], id: string, index: number): string[] {
   const rest = removeId(order, id);
-  const at = Math.max(0, Math.min(index, rest.length));
-  return [...rest.slice(0, at), id, ...rest.slice(at)];
+  return insertAt(rest, id, index);
+}
+
+/** Removes ONE copy. A lane may legitimately hold two placements of the same widget
+ * kind, and those are the same string, so a filter would take the one nobody dragged. */
+export function removeFirst(order: string[], id: string): string[] {
+  const at = order.indexOf(id);
+  return at === -1 ? [...order] : [...order.slice(0, at), ...order.slice(at + 1)];
+}
+
+/** Inserts at `index`, clamped to the array. */
+export function insertAt(order: string[], id: string, index: number): string[] {
+  const at = Math.max(0, Math.min(index, order.length));
+  return [...order.slice(0, at), id, ...order.slice(at)];
 }

@@ -1,7 +1,8 @@
 use crate::settings::{self, SettingsState, DIVIDER_PREFIX};
 use crate::strip;
-use crate::tile_actions::{apply_hide, apply_move, apply_remove_divider, widget_kind_for};
+use crate::tile_actions::{apply_hide, apply_lanes, apply_move, apply_remove_divider, widget_kind_for};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::menu::{ContextMenu, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, Window};
 
@@ -303,4 +304,25 @@ pub fn reorder_widgets(app: AppHandle, order: Vec<String>) -> Result<(), String>
     }
     s.enabled_widgets = new_order;
     settings::persist(&app, &mut s)
+}
+
+/// The settings lanes UI's one write path. Takes every live monitor's whole lane in one
+/// call, not one lane per call, so a tile dragged from one monitor to another is never
+/// briefly on both or on neither.
+#[tauri::command]
+pub fn set_lanes(app: AppHandle, lanes: HashMap<String, Vec<String>>) -> Result<(), String> {
+    {
+        let state = app.state::<SettingsState>();
+        let mut s = state.0.lock().map_err(|_| "settings lock poisoned".to_string())?;
+        let previously_enabled = s.enabled_widgets.clone();
+        apply_lanes(&mut s, &lanes);
+        // Same pairing save_settings uses: a kind dragged back in has to lose BOTH
+        // hidden_widgets shapes, or an orphaned "<kind>#n" keeps it invisible.
+        s.clear_hidden_for_reenabled_widgets(&previously_enabled);
+        settings::persist(&app, &mut s)?;
+    }
+    let _ = app.emit("widgets-changed", ());
+    crate::overlay::reconcile(&app);
+    strip::reconcile(&app);
+    Ok(())
 }

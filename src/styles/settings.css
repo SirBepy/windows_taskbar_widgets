@@ -30,6 +30,43 @@ body,
 
 /* ---------- widget strip (custom field inside the "Widgets" section) ---------- */
 
+/* Stacked, not side by side: at 3 monitors each side-by-side lane measured 253px and
+   the first already clipped a tile mid-glyph in the 780px settings window. */
+.wsf-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wsf-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: var(--kit-text-dim);
+}
+
+.wsf-lane-head .ph {
+  font-size: 13px;
+}
+
+.wsf-lane-head b {
+  color: var(--kit-text);
+  font-weight: 600;
+}
+
+.wsf-lane-dims {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Shorter than the single-lane 44px: at 2+ lanes the full-height desktop stripe
+   pushes the palette below the fold. */
+.wsf-lanes:has(.wsf-lane-head) .wsf-desktop {
+  height: 26px;
+}
+
 .wsf-stage {
   border: 1px solid var(--kit-border);
   border-radius: 10px;

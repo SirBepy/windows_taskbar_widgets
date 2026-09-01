@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeAt, removeId } from "./widget-strip-dnd";
+import { insertAt, placeAt, removeFirst, removeId } from "./widget-strip-dnd";
 
 const ORDER = ["cpu", "ram", "divider:a", "gpu"];
 
@@ -41,5 +41,32 @@ describe("removeId", () => {
 
   it("leaves the order untouched when the id is absent", () => {
     expect(removeId(ORDER, "disk")).toEqual(ORDER);
+  });
+});
+
+describe("removeFirst", () => {
+  // A lane can hold two copies of one kind, and both are the same string, so a drag
+  // of the second copy must not take the first one with it.
+  it("drops one copy and leaves the sibling", () => {
+    expect(removeFirst(["cpu", "ram", "cpu"], "cpu")).toEqual(["ram", "cpu"]);
+  });
+
+  it("leaves the order untouched when the id is absent", () => {
+    expect(removeFirst(ORDER, "disk")).toEqual(ORDER);
+  });
+});
+
+describe("insertAt", () => {
+  it("inserts at the index", () => {
+    expect(insertAt(["cpu", "ram"], "gpu", 1)).toEqual(["cpu", "gpu", "ram"]);
+  });
+
+  it("clamps past the end and before the front", () => {
+    expect(insertAt(["cpu"], "gpu", 99)).toEqual(["cpu", "gpu"]);
+    expect(insertAt(["cpu"], "gpu", -3)).toEqual(["gpu", "cpu"]);
+  });
+
+  it("allows a second copy of a kind already in the lane", () => {
+    expect(insertAt(["cpu", "ram"], "cpu", 2)).toEqual(["cpu", "ram", "cpu"]);
   });
 });

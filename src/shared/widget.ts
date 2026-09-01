@@ -106,9 +106,10 @@ export function stripNeedsRemount(prevIds: string[], nextIds: string[]): boolean
   return prevIds.length !== nextIds.length || prevIds.some((id, i) => id !== nextIds[i]);
 }
 
-/** One strip window's share of `ids`, ordered by `ids` rather than by the lane's own array.
- * An unresolved or empty lane returns `ids` whole: a blank strip is a worse failure than a
- * duplicated one, and "" is still the only key until Phase 4 ships a writer. */
+/** One strip window's share of `ids`, in the lane's own order - each monitor orders its
+ * tiles independently, which is the whole point of the lanes UI. `ids` still gates
+ * membership so a stale lane entry cannot resurrect a disabled widget. An unresolved or
+ * empty lane returns `ids` whole: a blank strip is a worse failure than a duplicated one. */
 export function idsForMonitor(
   ids: string[],
   settings: Settings | null | undefined,
@@ -117,8 +118,7 @@ export function idsForMonitor(
   if (monitorKey === null) return ids;
   const instances = settings?.monitor_widgets?.[monitorKey];
   if (!instances || instances.length === 0) return ids;
-  const memberIds = new Set(instances.map((si) => si.widget_id));
-  return ids.filter((id) => memberIds.has(id));
+  return instances.map((si) => si.widget_id).filter((id) => ids.includes(id));
 }
 
 /** Registry widgets a user's settings.json has never seen, minus any they already hid. */
