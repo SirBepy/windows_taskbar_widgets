@@ -81,14 +81,26 @@ fn build(app: &AppHandle, id: &str, label: &str, spec: &OverlaySpec) -> tauri::R
         .map(|s| s.hide_from_capture)
         .unwrap_or(false);
     let _ = tauri_kit_window::exclude_from_capture(&win, excluded);
-    let _ = win.show();
+    if let Err(e) = win.show() {
+        log::error!("overlay {label}: show failed: {e}");
+    }
+    log::info!("overlay {label}: built, visible={:?}", win.is_visible());
     Ok(())
 }
 
+// Every result here was discarded, so a window left at the 800x600 WebView2 default
+// looked identical to one that was never asked to move (todo 46).
 fn apply_geometry(app: &AppHandle, win: &tauri::WebviewWindow, spec: &OverlaySpec) {
-    if let Some((pos, size)) = geometry(app, spec) {
-        let _ = win.set_size(size);
-        let _ = win.set_position(pos);
+    let label = win.label();
+    let Some((pos, size)) = geometry(app, spec) else {
+        log::error!("overlay {label}: no monitor for {:?}, keeping default geometry", spec.monitor);
+        return;
+    };
+    if let Err(e) = win.set_size(size) {
+        log::error!("overlay {label}: set_size {size:?} failed: {e}");
+    }
+    if let Err(e) = win.set_position(pos) {
+        log::error!("overlay {label}: set_position {pos:?} failed: {e}");
     }
 }
 
