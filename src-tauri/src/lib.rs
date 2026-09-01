@@ -6,6 +6,7 @@ mod conductor_data;
 mod flyout;
 mod monitor_widgets;
 mod overlay;
+mod pending_queue;
 mod settings;
 mod settings_migrations;
 mod spotify_smtc;

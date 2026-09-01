@@ -1,7 +1,7 @@
+use crate::pending_queue::{prune_pending, Labeled, PendingQueue};
 use crate::settings::{OverlaySpec, Placement, SettingsState};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 use tauri::{
     AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
@@ -141,7 +141,7 @@ pub fn reconcile(app: &AppHandle) {
     // Same pass, so one place decides what is wanted: a window already built is closed
     // above, a build still queued is dropped here. Without this, a placement hidden
     // before the next tick is still built, then only closed by some later reconcile.
-    prune_pending(&mut pending_lock(), &wanted_labels);
+    prune_pending(&mut PENDING.lock(), &wanted_labels);
 
     for (label, instance_id, widget_id, spec) in &wanted {
         match app.get_webview_window(label) {
@@ -157,42 +157,30 @@ pub fn reconcile(app: &AppHandle) {
 /// A queued build: instance_id, widget_id, window label, geometry.
 type Pending = (String, String, String, OverlaySpec);
 
+impl Labeled for Pending {
+    fn label(&self) -> &str {
+        &self.2
+    }
+}
+
 /// Overlay windows waiting to be built, drained by `drain_pending` on the event loop's
 /// own tick. Deduped by label: reconcile can run again before a tick drains the queue.
-static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
-static POISON_LOGGED: AtomicBool = AtomicBool::new(false);
-
-/// Recovers from poison rather than skipping, the way `save_settings` does: the queue is
-/// plain data, and a skip would stop every overlay build for the rest of the process.
-/// Logged once, not per call - `drain_pending` runs on every event-loop tick.
-fn pending_lock() -> MutexGuard<'static, Vec<Pending>> {
-    PENDING.lock().unwrap_or_else(|poisoned| {
-        if !POISON_LOGGED.swap(true, Ordering::SeqCst) {
-            log::error!("overlay pending build queue lock poisoned, recovering");
-        }
-        poisoned.into_inner()
-    })
-}
+static PENDING: PendingQueue<Pending> = PendingQueue::new("overlay");
 
 /// Pure: queue `entry`, replacing any earlier queue of the same label. Replace, not skip:
 /// an overlay moved or resized between two ticks would otherwise build at the first
 /// queued geometry and stay there until an unrelated settings change re-applied it.
 fn upsert_pending(queue: &mut Vec<Pending>, entry: Pending) {
-    match queue.iter_mut().find(|(_, _, l, _)| *l == entry.2) {
+    match queue.iter_mut().find(|e| e.label() == entry.label()) {
         Some(slot) => *slot = entry,
         None => queue.push(entry),
     }
 }
 
-/// Pure: drop queued builds whose label `reconcile` no longer wants.
-fn prune_pending(queue: &mut Vec<Pending>, wanted_labels: &[String]) {
-    queue.retain(|(_, _, l, _)| wanted_labels.contains(l));
-}
-
 fn queue_build(instance_id: &str, widget_id: &str, label: &str, spec: &OverlaySpec) {
     let entry =
         (instance_id.to_string(), widget_id.to_string(), label.to_string(), spec.clone());
-    upsert_pending(&mut pending_lock(), entry);
+    upsert_pending(&mut PENDING.lock(), entry);
 }
 
 /// Builds the queued windows. Called from `RunEvent::MainEventsCleared`, i.e. between the
@@ -200,10 +188,7 @@ fn queue_build(instance_id: &str, widget_id: &str, label: &str, spec: &OverlaySp
 /// `run_on_main_thread` puts a task queued by `save_settings` - never returned, left the
 /// webview stranded on about:blank, and froze the whole app (todo 46, measured 2026-09-01).
 pub fn drain_pending(app: &AppHandle) {
-    // Take and drop the guard before building: build() creates a real WebView2 and is
-    // slow, and reconcile() can run on another thread while it does.
-    let queued = std::mem::take(&mut *pending_lock());
-    for (instance_id, widget_id, label, spec) in queued {
+    for (instance_id, widget_id, label, spec) in PENDING.take() {
         if app.get_webview_window(&label).is_some() {
             continue;
         }

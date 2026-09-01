@@ -1,8 +1,8 @@
 use crate::monitor_widgets::MonitorWidgets;
+use crate::pending_queue::{prune_pending, Labeled, PendingQueue};
 use crate::settings::SettingsState;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL_PREFIX: &str = "strip-";
@@ -175,7 +175,7 @@ pub fn reconcile(app: &AppHandle) {
     }
     // Same pass as the close loop above, so one place decides what is wanted: a built
     // window is closed there, a build still queued is dropped here.
-    prune_pending(&mut pending_lock(), &wanted);
+    prune_pending(&mut PENDING.lock(), &wanted);
 
     for label in &wanted {
         if label == PRIMARY_LABEL || app.get_webview_window(label).is_some() {
@@ -199,49 +199,34 @@ pub fn reconcile(app: &AppHandle) {
 /// A queued build: device_name, window label.
 type Pending = (String, String);
 
-/// Strip windows waiting to be built, drained by `drain_pending` on the event loop's own
-/// tick. Mirrors `overlay.rs`'s queue, for the same reason and with the same shape.
-static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
-static POISON_LOGGED: AtomicBool = AtomicBool::new(false);
-
-/// Recovers from poison rather than skipping: the queue is plain data, and a skip would
-/// stop every secondary strip from ever being built again. Logged once, not per call.
-fn pending_lock() -> MutexGuard<'static, Vec<Pending>> {
-    PENDING.lock().unwrap_or_else(|poisoned| {
-        if !POISON_LOGGED.swap(true, Ordering::SeqCst) {
-            log::error!("strip pending build queue lock poisoned, recovering");
-        }
-        poisoned.into_inner()
-    })
+impl Labeled for Pending {
+    fn label(&self) -> &str {
+        &self.1
+    }
 }
+
+/// Strip windows waiting to be built, drained by `drain_pending` on the event loop's own tick.
+static PENDING: PendingQueue<Pending> = PendingQueue::new("strip");
 
 /// Pure: queue `entry` unless its label is already queued. Returns whether it was added.
 /// Unlike overlay's, a strip entry carries no geometry, so a re-queue has nothing to update.
 fn upsert_pending(queue: &mut Vec<Pending>, entry: Pending) -> bool {
-    if queue.iter().any(|(_, l)| *l == entry.1) {
+    if queue.iter().any(|e| e.label() == entry.label()) {
         return false;
     }
     queue.push(entry);
     true
 }
 
-/// Pure: drop queued builds whose label `reconcile` no longer wants.
-fn prune_pending(queue: &mut Vec<Pending>, wanted_labels: &[String]) {
-    queue.retain(|(_, l)| wanted_labels.contains(l));
-}
-
 fn queue_build(device_name: &str, label: &str) -> bool {
-    upsert_pending(&mut pending_lock(), (device_name.to_string(), label.to_string()))
+    upsert_pending(&mut PENDING.lock(), (device_name.to_string(), label.to_string()))
 }
 
 /// Builds the queued strip windows on the event loop's own tick, called from
 /// `RunEvent::MainEventsCleared`. See `overlay::drain_pending` for why the build cannot
 /// happen inside a dispatch instead.
 pub fn drain_pending(app: &AppHandle) {
-    // Take and drop the guard before building: build() creates a real WebView2 and is
-    // slow, and reconcile() runs on autohide's poller thread while it does.
-    let queued = std::mem::take(&mut *pending_lock());
-    for (device_name, label) in queued {
+    for (device_name, label) in PENDING.take() {
         if app.get_webview_window(&label).is_some() {
             continue;
         }
