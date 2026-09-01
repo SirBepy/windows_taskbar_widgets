@@ -80,9 +80,9 @@ pub(crate) fn apply_move(s: &mut Settings, instance_id: &str, dir: i32) -> Optio
 }
 
 /// Replaces each named monitor's lane with `widget_ids`, in that order. Only the keys
-/// given are touched, so an unplugged monitor's saved lane is never mutated on absence.
-/// An instance already in that lane is reused rather than re-minted, so a reorder keeps
-/// each placement's hides and overlay geometry.
+/// given are touched, plus the `""` lane the Decision 2 block below retires, so an
+/// unplugged monitor's saved lane is never mutated on absence. An instance already in
+/// that lane is reused rather than re-minted, keeping its hides and overlay geometry.
 pub(crate) fn apply_lanes(s: &mut Settings, lanes: &HashMap<String, Vec<String>>) {
     for (monitor, widget_ids) in lanes {
         let mut previous = s.monitor_widgets.0.remove(monitor).unwrap_or_default();
