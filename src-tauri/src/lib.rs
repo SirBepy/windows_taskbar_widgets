@@ -315,6 +315,11 @@ pub fn run() {
             tauri_kit_settings::kit_copy_logs,
             tauri_kit_settings::kit_reset_settings,
         ])
-        .run(context)
-        .expect("error while running tauri application");
+        .build(context)
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::MainEventsCleared) {
+                overlay::drain_pending(app);
+            }
+        });
 }

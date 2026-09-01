@@ -60,6 +60,9 @@ fn geometry(app: &AppHandle, spec: &OverlaySpec) -> Option<(PhysicalPosition<i32
 }
 
 fn build(app: &AppHandle, id: &str, label: &str, spec: &OverlaySpec) -> tauri::Result<()> {
+    // Bracketing the builder call specifically: todo 46's failure was WebviewWindowBuilder
+    // never returning, which is indistinguishable from build() never being entered.
+    log::info!("overlay {label}: builder start");
     let win = WebviewWindowBuilder::new(app, label, WebviewUrl::App("overlay.html".into()))
         .title("Widget")
         .decorations(false)
@@ -70,6 +73,7 @@ fn build(app: &AppHandle, id: &str, label: &str, spec: &OverlaySpec) -> tauri::R
         .resizable(true)
         .visible(false)
         .build()?;
+    log::info!("overlay {label}: builder returned");
     if let Ok(mut map) = app.state::<OverlayState>().0.lock() {
         map.insert(label.to_string(), id.to_string());
     }
@@ -137,21 +141,41 @@ pub fn reconcile(app: &AppHandle) {
         match app.get_webview_window(label) {
             Some(win) => apply_geometry(app, &win, spec),
             None => {
-                log::info!("overlay {instance_id}: building {label}");
-                // build() must run on the main thread; reconcile() is also called from
-                // save_settings (an IPC handler, off it), which silently never created the
-                // window before (todo 46). run_on_main_thread hops it over - a no-op extra
-                // tick when already on the main thread (the setup() call site).
-                let (app2, widget_id2, label2, spec2) =
-                    (app.clone(), widget_id.clone(), label.clone(), spec.clone());
-                if let Err(e) = app.run_on_main_thread(move || {
-                    if let Err(e) = build(&app2, &widget_id2, &label2, &spec2) {
-                        log::error!("overlay {label2}: {e}");
-                    }
-                }) {
-                    log::error!("overlay {instance_id}: failed to dispatch build to main thread: {e}");
-                }
+                log::info!("overlay {instance_id}: queued build of {label}");
+                queue_build(instance_id, widget_id, label, spec);
             }
+        }
+    }
+}
+
+/// Overlay windows waiting to be built, drained by `drain_pending` on the event loop's
+/// own tick. Deduped by label: reconcile can run again before a tick drains the queue.
+static PENDING: Mutex<Vec<(String, String, String, OverlaySpec)>> = Mutex::new(Vec::new());
+
+fn queue_build(instance_id: &str, widget_id: &str, label: &str, spec: &OverlaySpec) {
+    let Ok(mut q) = PENDING.lock() else { return };
+    if q.iter().any(|(_, _, l, _)| l == label) {
+        return;
+    }
+    q.push((instance_id.to_string(), widget_id.to_string(), label.to_string(), spec.clone()));
+}
+
+/// Builds the queued windows. Called from `RunEvent::MainEventsCleared`, i.e. between the
+/// event loop's dispatches. Building from inside one instead - which is where
+/// `run_on_main_thread` puts a task queued by `save_settings` - never returned, left the
+/// webview stranded on about:blank, and froze the whole app (todo 46, measured 2026-09-01).
+pub fn drain_pending(app: &AppHandle) {
+    let queued = match PENDING.lock() {
+        Ok(mut q) if !q.is_empty() => std::mem::take(&mut *q),
+        _ => return,
+    };
+    for (instance_id, widget_id, label, spec) in queued {
+        if app.get_webview_window(&label).is_some() {
+            continue;
+        }
+        log::info!("overlay {instance_id}: building {label}");
+        if let Err(e) = build(app, &widget_id, &label, &spec) {
+            log::error!("overlay {label}: {e}");
         }
     }
 }
