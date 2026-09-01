@@ -90,7 +90,7 @@ function toKitField(f: ConfigField): Field {
 function overlayRowsTemplate(w: TaskbarWidget, p: OverlayPlacement): TemplateResult {
   const inherited = p.opacity === null || p.opacity === undefined;
   return html`
-    <label class="kit-row">
+    <div class="kit-row">
       <span class="kit-row-label">Overlay opacity</span>
       <span class="wsf-opacity-control">
         <input
@@ -104,7 +104,7 @@ function overlayRowsTemplate(w: TaskbarWidget, p: OverlayPlacement): TemplateRes
           @change=${(e: Event) =>
             setOverlayOpacity(w.id, parseInt((e.target as HTMLInputElement).value, 10))}
         />
-        <span class="kit-toggle">
+        <label class="kit-toggle">
           <input
             type="checkbox"
             .checked=${inherited}
@@ -115,10 +115,10 @@ function overlayRowsTemplate(w: TaskbarWidget, p: OverlayPlacement): TemplateRes
               )}
           />
           <span class="kit-toggle-track"></span>
-        </span>
+        </label>
         <span class="wsf-inherit-label">Inherit</span>
       </span>
-    </label>
+    </div>
     <div class="kit-row">
       <span class="kit-row-label">Position</span>
       <button type="button" class="kit-btn-secondary" @click=${() => resetOverlayPosition(w)}>
