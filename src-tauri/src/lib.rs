@@ -17,8 +17,8 @@ use settings::{Settings, SettingsState};
 use std::sync::Mutex;
 use tauri::{
     image::Image,
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WindowEvent,
 };
 
@@ -119,24 +119,38 @@ fn apply_capture_exclusion(app: &AppHandle, excluded: bool) {
     }
 }
 
-fn toggle_strip(app: &AppHandle) {
-    let Some(w) = app.get_webview_window("strip") else { return };
-    if w.is_visible().unwrap_or(false) {
-        let _ = w.hide();
-        flyout::close_flyout(app.clone());
-        autohide::set_user_hidden(true);
-        autohide::set_user_forced_visible(false);
-    } else {
-        let _ = w.show();
-        autohide::set_user_hidden(false);
-        autohide::set_user_forced_visible(true);
+const HIDE_STRIPS_LABEL: &str = "Hide all strips";
+const SHOW_STRIPS_LABEL: &str = "Show all strips";
+
+fn any_strip_visible(app: &AppHandle) -> bool {
+    strip::live_labels(app)
+        .iter()
+        .filter_map(|l| app.get_webview_window(l))
+        .any(|w| w.is_visible().unwrap_or(false))
+}
+
+/// Any strip visible hides them all, otherwise all are shown, so the two autohide
+/// flags stay coherent across N windows instead of one per strip.
+fn toggle_all_strips(app: &AppHandle) {
+    let hide = any_strip_visible(app);
+    for label in strip::live_labels(app) {
+        let Some(w) = app.get_webview_window(&label) else { continue };
+        let _ = if hide { w.hide() } else { w.show() };
     }
+    if hide {
+        flyout::close_flyout(app.clone());
+    }
+    autohide::set_user_hidden(hide);
+    autohide::set_user_forced_visible(!hide);
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
+    let hide_strips =
+        MenuItem::with_id(app, "hide-strips", HIDE_STRIPS_LABEL, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&settings, &quit])?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&settings, &hide_strips, &separator, &quit])?;
     let icon: Image = match app.default_window_icon() {
         Some(i) => i.clone(),
         None => Image::from_bytes(include_bytes!("../icons/32x32.png"))?,
@@ -149,17 +163,23 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "settings" => tile_menu::open_settings(app.clone(), None),
+            "hide-strips" => toggle_all_strips(app),
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click {
-                button: tauri::tray::MouseButton::Left,
-                button_state: tauri::tray::MouseButtonState::Up,
+        .on_tray_icon_event(move |tray, event| match event {
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
                 ..
-            } = event
-            {
-                toggle_strip(tray.app_handle());
+            } => tile_menu::open_settings(tray.app_handle().clone(), None),
+            // Autohide flips strip visibility without the menu knowing, so the label is
+            // re-read on hover-in; the pointer always enters the icon before the menu opens.
+            TrayIconEvent::Enter { .. } => {
+                let visible = any_strip_visible(tray.app_handle());
+                let _ = hide_strips
+                    .set_text(if visible { HIDE_STRIPS_LABEL } else { SHOW_STRIPS_LABEL });
             }
+            _ => {}
         })
         .build(app)?;
     Ok(())
@@ -187,12 +207,14 @@ pub fn run() {
         // Backs the About page's "Relaunch now" button after an update installs.
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("strip") {
-                let _ = w.show();
-                // Without this the flag stays true after a tray-hide + relaunch, and the
-                // autohide poller skips every tick for the rest of the session.
-                autohide::set_user_hidden(false);
+            for label in strip::live_labels(app) {
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = w.show();
+                }
             }
+            // Without this the flag stays true after a tray-hide + relaunch, and the
+            // autohide poller skips every tick for the rest of the session.
+            autohide::set_user_hidden(false);
         }))
         // kit_copy_logs reads <log-dir>/app.log. Capped at Info: the wmi crate TRACE-logs
         // every thermal query, which with KeepAll rotation would grow logs unbounded.

@@ -58,15 +58,6 @@ pub fn spawn_poller(app: AppHandle) {
     });
 }
 
-/// Every live strip: the bare primary label plus any runtime secondary
-/// (`strip::LABEL_PREFIX`-prefixed) window `strip::reconcile` has built so far.
-fn live_strip_labels(app: &AppHandle) -> Vec<String> {
-    app.webview_windows()
-        .into_keys()
-        .filter(|l| l == crate::strip::PRIMARY_LABEL || l.starts_with(crate::strip::LABEL_PREFIX))
-        .collect()
-}
-
 /// One tick: ONE `enumerate_taskbars()` Win32 pass, then every live strip is matched
 /// against that in-memory `Vec<DetectedTaskbar>` via `taskbar_hidden_for` - no strip
 /// re-enumerates, which is the N-times-the-polling-cost the plan forbids.
@@ -86,7 +77,7 @@ fn run_tick(app: &AppHandle, fullscreen_device: Option<&str>) {
     #[cfg(target_os = "windows")]
     let mut hwnds: Vec<isize> = Vec::new();
 
-    for label in live_strip_labels(app) {
+    for label in crate::strip::live_labels(app) {
         let Some(win) = app.get_webview_window(&label) else { continue };
         #[cfg(target_os = "windows")]
         if let Ok(hwnd) = win.hwnd() {

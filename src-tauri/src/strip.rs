@@ -54,6 +54,15 @@ pub fn build(app: &AppHandle, device_name: &str, label: &str) -> tauri::Result<(
 /// `wanted_strip_labels`'s primary rule exactly (empty key, or a device name that
 /// happens to be the live primary, both mean the bare label) so the two can never
 /// disagree about which window a given device's widgets land in.
+/// Every live strip window: the bare primary label plus any runtime secondary
+/// (`LABEL_PREFIX`) window `reconcile` has built so far.
+pub fn live_labels(app: &AppHandle) -> Vec<String> {
+    app.webview_windows()
+        .into_keys()
+        .filter(|l| l == PRIMARY_LABEL || l.starts_with(LABEL_PREFIX))
+        .collect()
+}
+
 pub fn resolve_label_for_monitor(monitor: &str, primary_name: Option<&str>) -> String {
     if monitor.is_empty() || Some(monitor) == primary_name {
         PRIMARY_LABEL.to_string()
