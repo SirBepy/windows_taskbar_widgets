@@ -7,6 +7,7 @@ mod flyout;
 mod monitor_widgets;
 mod overlay;
 mod settings;
+mod settings_migrations;
 mod spotify_smtc;
 mod strip;
 mod system_stats;
