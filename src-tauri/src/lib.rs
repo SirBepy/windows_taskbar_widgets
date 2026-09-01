@@ -12,6 +12,7 @@ mod spotify_smtc;
 mod strip;
 mod system_stats;
 mod taskbar;
+mod tile_actions;
 mod tile_menu;
 
 use settings::{Settings, SettingsState};
