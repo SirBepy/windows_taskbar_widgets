@@ -18,18 +18,27 @@ let laneChromeKey = "";
 
 // ---------- chrome ----------
 
-function monitorLabel(m: MonitorOption): string {
-  if (m.device_name === "") return "Taskbar";
-  return m.is_primary ? `Primary - ${m.device_name}` : m.device_name;
+/** Windows' own numbering: the 2 in `\\.\DISPLAY2` is the "2" its Display settings
+ * shows. Falls back to lane order for a device name outside that shape. */
+function monitorNumber(m: MonitorOption, i: number): string {
+  return /DISPLAY(\d+)$/.exec(m.device_name)?.[1] ?? String(i + 1);
 }
 
-function laneTemplate(m: MonitorOption, showHead: boolean): TemplateResult {
+function monitorLabel(m: MonitorOption, i: number): string {
+  if (m.device_name === "") return "Taskbar";
+  const n = `Monitor ${monitorNumber(m, i)}`;
+  return m.is_primary ? `${n} (Primary)` : n;
+}
+
+// The raw device name stays in the dim suffix: two identical panels differ by nothing
+// else, and it is the key `monitor_widgets` is actually written under.
+function laneTemplate(m: MonitorOption, i: number, showHead: boolean): TemplateResult {
   return html`
     <div class="wsf-lane">
       ${showHead
         ? html`<div class="wsf-lane-head">
-            <i class="ph ph-monitor"></i><b>${monitorLabel(m)}</b>
-            <span class="wsf-lane-dims">${m.width}x${m.height}</span>
+            <i class="ph ph-monitor"></i><b>${monitorLabel(m, i)}</b>
+            <span class="wsf-lane-dims">${m.width}x${m.height} · ${m.device_name}</span>
           </div>`
         : ""}
       <div class="wsf-stage">
@@ -55,7 +64,7 @@ function syncLaneChrome(container: HTMLElement, monitors: MonitorOption[]): void
   laneChromeKey = key;
   const showHead = monitors.length > 1;
   render(
-    html`${monitors.map((m) => laneTemplate(m, showHead))}`,
+    html`${monitors.map((m, i) => laneTemplate(m, i, showHead))}`,
     container,
   );
 }
