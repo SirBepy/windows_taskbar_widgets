@@ -1,20 +1,16 @@
-import { html, render, type TemplateResult } from "lit-html";
+import { html } from "lit-html";
 import { ref } from "lit-html/directives/ref.js";
 import { invoke } from "@tauri-apps/api/core";
 import type { CustomField } from "../../../vendor/tauri_kit/frontend/settings/schema";
-import { Settings, subscribeSettings } from "../../shared/widget";
+import { isInstanceHidden, Settings, subscribeSettings } from "../../shared/widget";
 import { isDividerId } from "../../shared/divider";
 import { dividerWidget } from "../../widgets/divider";
-import { allWidgetIds, allWidgets, widgetById } from "../../widgets/registry";
+import { allWidgetIds, allWidgets } from "../../widgets/registry";
 import { fetchStatsOnce } from "../../widgets/system-shared";
 import { renderConfig } from "./widget-strip-config";
+import { disposeLanes, type MonitorOption, renderLanes } from "./widget-strip-lanes";
 import { insertAt, removeFirst } from "./widget-strip-dnd";
 import { isStripDragActive, NEW_DIVIDER, wireStripDrag } from "./widget-strip-drag";
-
-interface Mounted {
-  el: HTMLElement;
-  dispose: () => void;
-}
 
 interface Refs {
   root: HTMLElement;
@@ -23,23 +19,14 @@ interface Refs {
   config: HTMLElement;
 }
 
-interface MonitorOption {
-  device_name: string;
-  is_primary: boolean;
-  width: number;
-  height: number;
-}
-
 let refs: Refs | null = null;
 let settings: Settings | null = null;
 let selectedId: string | null = null;
 let stopSettings: (() => void) | null = null;
 let monitors: MonitorOption[] = [];
-let laneChromeKey = "";
 /** Widget ids per monitor device name, the lanes UI's own copy of `monitor_widgets`.
  * Updated optimistically on a drop so the strip does not wait on the IPC round trip. */
 let lanes: Record<string, string[]> = {};
-const mounted = new Map<string, Mounted>();
 
 const SKELETON = `
   <div class="wsf-lanes"></div>
@@ -63,14 +50,10 @@ const FALLBACK_MONITOR: MonitorOption = {
 
 // ---------- lifecycle ----------
 
-// Hiding a webview doesn't stop its JS, so every mounted tile must be disposed
-// when this page goes away - the same leak that cost 15x idle CPU in the flyout.
 function teardown(): void {
   stopSettings?.();
   stopSettings = null;
-  for (const m of mounted.values()) m.dispose();
-  mounted.clear();
-  laneChromeKey = "";
+  disposeLanes();
   refs = null;
 }
 
@@ -123,12 +106,11 @@ async function loadMonitors(): Promise<void> {
  * the tile menu hid stays under Available instead of a drag writing it back visible. */
 function seedLanes(): void {
   const saved = settings?.monitor_widgets ?? {};
-  const hidden = settings?.hidden_widgets ?? [];
   lanes = {};
   for (const m of monitors) {
     const lane = saved[m.device_name] ?? (m.is_primary ? saved[""] : undefined);
     lanes[m.device_name] = (lane ?? [])
-      .filter((si) => !hidden.includes(si.instance_id) && !hidden.includes(si.widget_id))
+      .filter((si) => !isInstanceHidden(settings, si))
       .map((si) => si.widget_id);
   }
 }
@@ -147,117 +129,13 @@ async function commitLanes(next: Record<string, string[]>): Promise<void> {
 
 function syncAll(): void {
   if (!refs) return;
-  syncLaneChrome();
-  syncLanes();
+  renderLanes(refs.lanes, monitors, lanes, selectedId);
   syncPalette();
   syncConfig();
 }
 
 function syncConfig(): void {
   renderConfig(refs!.config, selectedId, settings, (next) => void save(next));
-}
-
-function monitorLabel(m: MonitorOption): string {
-  if (m.device_name === "") return "Taskbar";
-  return m.is_primary ? `Primary - ${m.device_name}` : m.device_name;
-}
-
-function laneTemplate(m: MonitorOption): TemplateResult {
-  return html`
-    <div class="wsf-lane">
-      ${monitors.length > 1
-        ? html`<div class="wsf-lane-head">
-            <i class="ph ph-monitor"></i><b>${monitorLabel(m)}</b>
-            <span class="wsf-lane-dims">${m.width}x${m.height}</span>
-          </div>`
-        : ""}
-      <div class="wsf-stage">
-        <div class="wsf-desktop"></div>
-        <div class="wsf-bar">
-          <div class="wsf-strip" data-monitor=${m.device_name}></div>
-          <div class="wsf-sys">
-            <i class="ph ph-wifi-high"></i><i class="ph ph-speaker-high"></i
-            ><i class="ph ph-battery-high"></i>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// Rebuilt only when the monitor SET changes, never on a tile move: re-rendering the
-// chrome would throw away the strip elements the drag is holding mid-gesture.
-function syncLaneChrome(): void {
-  const key = monitors.map((m) => m.device_name).join(" ");
-  if (laneChromeKey === key) return;
-  laneChromeKey = key;
-  for (const m of mounted.values()) {
-    m.dispose();
-    m.el.remove();
-  }
-  mounted.clear();
-  render(
-    html`${monitors.map((m) => laneTemplate(m))}`,
-    refs!.lanes,
-  );
-}
-
-function stripFor(deviceName: string): HTMLElement | null {
-  return [...refs!.lanes.querySelectorAll<HTMLElement>(".wsf-strip")].find(
-    (el) => (el.dataset.monitor ?? "") === deviceName,
-  ) ?? null;
-}
-
-// Keyed by lane, kind and which copy - never by position, or a reorder would remount
-// every tile it moved past. The same widget on two monitors is two live tiles, since
-// one element cannot sit in two strips.
-function tileKeys(monitor: string, ids: string[]): string[] {
-  const seen = new Map<string, number>();
-  return ids.map((id) => {
-    const n = seen.get(id) ?? 0;
-    seen.set(id, n + 1);
-    return `${monitor} ${id} ${n}`;
-  });
-}
-
-function mountTile(id: string): Mounted | null {
-  const w = widgetById(id);
-  if (!w) return null;
-  const el = document.createElement("div");
-  el.className = "tile";
-  el.dataset.widget = id;
-  return { el, dispose: w.mountTile(el) };
-}
-
-// Tiles are moved, never re-created: remounting on each change would re-run every
-// widget's subscriptions and throw away the drag's DOM mid-gesture.
-function syncLanes(): void {
-  const wanted = new Set<string>();
-  for (const m of monitors) {
-    for (const key of tileKeys(m.device_name, lanes[m.device_name] ?? [])) wanted.add(key);
-  }
-  for (const [key, m] of [...mounted]) {
-    if (wanted.has(key)) continue;
-    m.dispose();
-    m.el.remove();
-    mounted.delete(key);
-  }
-  for (const monitor of monitors) {
-    const strip = stripFor(monitor.device_name);
-    if (!strip) continue;
-    const ids = lanes[monitor.device_name] ?? [];
-    const keys = tileKeys(monitor.device_name, ids);
-    ids.forEach((id, i) => {
-      let m = mounted.get(keys[i]);
-      if (!m) {
-        const made = mountTile(id);
-        if (!made) return;
-        mounted.set(keys[i], (m = made));
-      }
-      m.el.classList.toggle("wsf-selected", id === selectedId);
-      if (strip.children[i] !== m.el) strip.insertBefore(m.el, strip.children[i] ?? null);
-    });
-  }
 }
 
 function chip(id: string, name: string, icon?: string): HTMLElement {
@@ -307,7 +185,7 @@ function resetLayout(): void {
 
 function onStripSelect(id: string): void {
   selectedId = id;
-  syncLanes();
+  renderLanes(refs!.lanes, monitors, lanes, selectedId);
   syncConfig();
 }
 
@@ -330,7 +208,7 @@ function onStripRemove(id: string, monitor: string): void {
 export function selectWidgetInStrip(id: string): void {
   selectedId = id;
   if (!refs) return;
-  syncLanes();
+  renderLanes(refs.lanes, monitors, lanes, selectedId);
   syncConfig();
   requestAnimationFrame(() => {
     const tile = refs?.lanes.querySelector(`.wsf-strip [data-widget="${CSS.escape(id)}"]`);

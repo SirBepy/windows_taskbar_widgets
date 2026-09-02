@@ -95,7 +95,10 @@ function isOverlayPlaced(
 }
 
 /** Mirrors settings.rs's `is_active`: hidden_widgets carries instance ids and bare kinds at once. */
-function isInstanceHidden(settings: Settings | null | undefined, si: StripInstance): boolean {
+export function isInstanceHidden(
+  settings: Settings | null | undefined,
+  si: StripInstance,
+): boolean {
   const hidden = settings?.hidden_widgets ?? [];
   return hidden.includes(si.instance_id) || hidden.includes(si.widget_id);
 }
