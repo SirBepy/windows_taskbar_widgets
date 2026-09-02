@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Manager};
 const DISCOVERY_FILENAME: &str = "widget-bridge.json";
 const RECONNECT_MIN_SECS: u64 = 3;
 const RECONNECT_MAX_SECS: u64 = 5;
+const DISCOVERY_POLL_MS: u64 = 250;
 
 #[derive(Deserialize)]
 struct Discovery {
@@ -46,9 +47,29 @@ pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || run(app));
 }
 
+fn discovery_mtime() -> Option<std::time::SystemTime> {
+    std::fs::metadata(discovery_path()?).ok()?.modified().ok()
+}
+
+/// Sleeps up to `secs`, cut short once the discovery file's mtime moves off
+/// `seen`. The overlay rewrites it with a fresh port on every start, so waiting
+/// out the full backoff instead leaves its own window on screen until we arrive.
+fn wait_for_retry(secs: u64, seen: Option<std::time::SystemTime>) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(secs);
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(DISCOVERY_POLL_MS));
+        if discovery_mtime() != seen {
+            return;
+        }
+    }
+}
+
 fn run(app: AppHandle) {
     let mut backoff = RECONNECT_MIN_SECS;
     loop {
+        // Sampled before the attempt, so a rewrite landing mid-attempt still
+        // shortens the wait rather than being mistaken for the state we saw.
+        let seen = discovery_mtime();
         if try_connect(&app).is_ok() {
             backoff = RECONNECT_MIN_SECS;
         } else {
@@ -56,7 +77,7 @@ fn run(app: AppHandle) {
         }
         set_writer(&app, None);
         let _ = app.emit("pomodoro-state", json!({ "connected": false }));
-        std::thread::sleep(Duration::from_secs(backoff));
+        wait_for_retry(backoff, seen);
     }
 }
 
