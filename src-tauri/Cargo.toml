@@ -2,7 +2,7 @@
 name = "windows-taskbar-widgets"
 # Keep in step with package.json / tauri.conf.json: get_version_info reports this
 # via CARGO_PKG_VERSION, so drift shows the wrong version in the settings About row.
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
 
 [lib]
