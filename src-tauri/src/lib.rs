@@ -67,6 +67,7 @@ fn save_settings(app: AppHandle, mut settings: Settings) -> Result<(), String> {
     strip::reconcile(&app);
     // Resent unconditionally, same as overlay::reconcile above: cheap, and it
     // covers pomodoro enable/disable and placement changes alike.
+    bridge_conductor::send_host_overlay(&app);
     bridge_pomodoro::send_host_overlay(&app);
     Ok(())
 }
@@ -202,6 +203,7 @@ pub fn run() {
         // webview that starts executing before setup() runs.
         .manage(SettingsState(Mutex::new(settings)))
         .manage(system_stats::StatsState(Mutex::new(Default::default())))
+        .manage(bridge_conductor::new_state())
         .manage(bridge_pomodoro::new_state())
         .manage(overlay::new_state())
         .manage(strip::new_state())

@@ -1,11 +1,14 @@
 //! Live-push bridge into Claude Conductor's daemon: WS usage snapshots plus
 //! an on-demand refresh RPC. conductor_data.rs's 30s DB poll stays the
 //! fallback; this only makes updates arrive sooner when the daemon is up.
-use futures_util::StreamExt;
+use crate::settings::SettingsState;
+use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_tungstenite::tungstenite::Message;
 
 const DAEMON_PORT: u16 = 27183;
@@ -34,8 +37,49 @@ struct Frame {
     params: Option<serde_json::Value>,
 }
 
+/// Holds the writer task's channel while the stream is up so a settings save
+/// can push a fresh `host_overlay`; `None` while disconnected.
+pub struct ConductorBridgeState(pub Mutex<Option<UnboundedSender<String>>>);
+
+pub fn new_state() -> ConductorBridgeState {
+    ConductorBridgeState(Mutex::new(None))
+}
+
 pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(run(app));
+}
+
+fn set_writer(app: &AppHandle, tx: Option<UnboundedSender<String>>) {
+    if let Some(state) = app.try_state::<ConductorBridgeState>() {
+        if let Ok(mut cur) = state.0.lock() {
+            *cur = tx;
+        }
+    }
+}
+
+/// Any non-hidden placement of "conductor", taskbar or overlay, on any monitor.
+/// Same trigger as pomodoro's, so one rule covers both providers.
+fn conductor_hosted(app: &AppHandle) -> bool {
+    app.try_state::<SettingsState>()
+        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active("conductor")))
+        .unwrap_or(false)
+}
+
+/// Tells conductor whether we are drawing its widget, so its tray menu can drop
+/// its own "Show overlay" entry. No-op while disconnected: a fresh connect
+/// resends this, so the state is never stale for longer than the outage.
+pub fn send_host_overlay(app: &AppHandle) {
+    let hosted = conductor_hosted(app);
+    let Some(state) = app.try_state::<ConductorBridgeState>() else { return };
+    let Ok(guard) = state.0.lock() else { return };
+    let Some(tx) = guard.as_ref() else { return };
+    let line = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "host_overlay",
+        "params": { "hosted": hosted },
+    })
+    .to_string();
+    let _ = tx.send(line);
 }
 
 /// Reconnect loop, spawned once from lib.rs setup. Re-reads the token file on
@@ -56,7 +100,17 @@ async fn try_connect_and_stream(app: &AppHandle) -> Result<(), ()> {
     let token = read_token().ok_or(())?;
     let url = format!("ws://127.0.0.1:{DAEMON_PORT}/api/global/stream?token={token}");
     let (ws, _) = tokio_tungstenite::connect_async(url).await.map_err(|_| ())?;
-    let (_write, mut read) = ws.split();
+    let (mut write, mut read) = ws.split();
+    let (tx, mut rx) = unbounded_channel::<String>();
+    set_writer(app, Some(tx));
+    tauri::async_runtime::spawn(async move {
+        while let Some(line) = rx.recv().await {
+            if write.send(Message::Text(line)).await.is_err() {
+                break;
+            }
+        }
+    });
+    send_host_overlay(app);
     while let Some(msg) = read.next().await {
         let Ok(Message::Text(txt)) = msg else { continue };
         let Ok(frame) = serde_json::from_str::<Frame>(&txt) else { continue };
@@ -66,6 +120,9 @@ async fn try_connect_and_stream(app: &AppHandle) -> Result<(), ()> {
             }
         }
     }
+    // Dropping our Sender ends the writer task's `rx.recv()` loop; conductor
+    // sees the socket close and restores its own menu entry on its side.
+    set_writer(app, None);
     Ok(())
 }
 
