@@ -60,7 +60,8 @@ node .claude/skills/cdp-drive/drive.mjs <command>
 | `targets` | Every CDP target, with a hung-build warning (see below) |
 | `strips` | Per live strip window: its tiles' widget + instance ids, and the row width |
 | `settings` | Opens Settings > Widgets, dumps lane heads, per-lane tiles, palette, config rows |
-| `shot <out-dir>` | Screenshots the settings page and the lanes block |
+| `shot <out-dir> [page]` | Screenshots a page, every match if several (default `settings`, plus its lanes block) |
+| `hover <page> <selector>` | A real hover, e.g. a strip tile, so `open_flyout` fires; reports the flyout after |
 | `click <selector>` | A real pointer click in Settings > Widgets, with a raw-mouse fallback |
 | `select <selector> <value>` | Sets a dropdown, e.g. the Placement select, and reports the config rows after |
 | `drag <widget> <lane>` | Drags a preview tile into lane N (0-based), then reports every lane |
@@ -88,6 +89,10 @@ of its own and needs none.
   verified without touching Joe's desktop.
 - **Preview tiles listen to `pointerdown` for drag**, so a DOM `.click()` does nothing. Use a
   real Playwright click, and a real `mouse.down`/`move`/`up` sequence for a drag.
+- **A page keeps its hover state between CDP connections** while Playwright's own mouse position
+  resets to 0,0 each time, so re-hovering the tile you hovered in a previous invocation fires no
+  `mouseenter` at all and nothing happens. `hover` moves far away first, then enters. This looked
+  exactly like a broken flyout for several rounds on 2026-09-01.
 - **A kit toggle's real `input` is 0x0 and `opacity: 0`** - the clickable surface is
   `.kit-toggle-track`. Playwright also refuses any element inside a `label` whose first labelable
   control is disabled, reporting "element is not enabled" about a plain `span`. `click` falls back

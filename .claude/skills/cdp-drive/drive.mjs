@@ -31,8 +31,9 @@ function usage(msg) {
       "  targets                 every CDP target, with a hung-build warning",
       "  strips                  tiles, instance ids and width per live strip window",
       "  settings                open Settings > Widgets and dump the lanes/palette state",
-      "  shot <out-dir>          screenshot the settings page and the lanes block",
+      "  shot <out-dir> [page]   screenshot a page (default settings; every match if several)",
       "  click <selector>        real pointer click in Settings > Widgets (a DOM .click() is ignored)",
+      "  hover <page> <sel>      real hover, e.g. a strip tile, so open_flyout fires",
       "  select <selector> <v>   set a Settings > Widgets dropdown (e.g. the Placement select)",
       "  drag <widget> <lane>    drag a preview tile into lane N (0-based), then report both lanes",
       "  eval <page> <js>        run JS in a page (strip|settings|flyout|overlay|<url substring>)",
@@ -125,16 +126,23 @@ async function cmdSettings() {
   await browser.close();
 }
 
-async function cmdShot(outDir) {
+async function cmdShot(outDir, which = "settings") {
   if (!outDir) usage("shot needs an output directory");
   mkdirSync(outDir, { recursive: true });
   const { browser, pages } = await connect();
-  const [page] = pick(pages, "settings");
-  await openWidgetsSection(page);
-  await page.screenshot({ path: `${outDir}/settings-full.png`, fullPage: true });
-  const lanes = await page.$(".wsf-lanes");
-  if (lanes) await lanes.screenshot({ path: `${outDir}/lanes.png` });
-  console.log("shot ->", outDir);
+  const hits = pick(pages, which);
+  for (const [i, page] of hits.entries()) {
+    // Each strip window is its own page on the same URL, so the index is the only
+    // thing that tells two of them apart in a filename.
+    const suffix = hits.length > 1 ? `-${i}` : "";
+    if (which === "settings") await openWidgetsSection(page);
+    await page.screenshot({ path: `${outDir}/${which}${suffix}.png`, fullPage: true });
+    if (which === "settings") {
+      const lanes = await page.$(".wsf-lanes");
+      if (lanes) await lanes.screenshot({ path: `${outDir}/lanes.png` });
+    }
+    console.log("shot", page.url(), "->", `${outDir}/${which}${suffix}.png`);
+  }
   await browser.close();
 }
 
@@ -168,6 +176,39 @@ async function cmdClick(selector) {
     console.log("clicked", selector, "(raw mouse fallback)");
   }
   await page.waitForTimeout(400);
+  await browser.close();
+}
+
+// The one thing Win32 cursor automation never managed (see the run-and-debug-mechanics memory):
+// a hover the strip's mouseenter listener actually believes, so open_flyout fires.
+async function cmdHover(which, selector, holdMs = 1200) {
+  if (!which || !selector) usage("hover needs a page and a selector");
+  const { browser, pages } = await connect();
+  // "strip" matches every strip window, and a tile usually lives on only one of them.
+  const hits = pick(pages, which);
+  let page = null;
+  for (const p of hits) if (await p.$(selector)) { page = p; break; }
+  if (!page) throw new Error(`no page matching "${which}" contains ${selector}`);
+  // The PAGE keeps its hover state between CDP connections while Playwright's own mouse
+  // position resets to 0,0 each time, so re-hovering the tile you hovered last session
+  // fires no mouseenter at all. Leave the element first, then enter it.
+  await page.mouse.move(5000, 5000);
+  await page.waitForTimeout(120);
+  await page.hover(selector);
+  await page.waitForTimeout(Number(holdMs));
+  // Every strip window shares one URL, so name the page by what it renders instead.
+  const on = await page.evaluate(() =>
+    [...document.querySelectorAll("#strip .tile")].map((t) => t.dataset.widget),
+  ).catch(() => null);
+  console.log("hovered", selector, "on", page.url(), on ? JSON.stringify(on) : "");
+  const fly = pages.find((p) => PAGE_PATTERNS.flyout.test(p.url()));
+  if (fly) {
+    const w = await fly.evaluate(async () => {
+      const win = window.__TAURI__.window.getCurrentWindow();
+      return { visible: await win.isVisible(), pos: await win.outerPosition() };
+    });
+    console.log("flyout:", JSON.stringify(w), "|", (await fly.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 50))));
+  }
   await browser.close();
 }
 
@@ -240,6 +281,7 @@ const commands = {
   settings: cmdSettings,
   shot: cmdShot,
   click: cmdClick,
+  hover: cmdHover,
   select: cmdSelect,
   drag: cmdDrag,
   eval: cmdEval,
