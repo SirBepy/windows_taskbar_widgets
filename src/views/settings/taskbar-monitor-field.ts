@@ -1,18 +1,12 @@
 import { html, type TemplateResult } from "lit-html";
 import type { CustomField } from "../../../vendor/tauri_kit/frontend/settings/schema";
 import { lazyIpcField } from "./lazy-ipc-field";
-
-interface TaskbarMonitorOption {
-  device_name: string;
-  is_primary: boolean;
-  width: number;
-  height: number;
-}
+import type { MonitorOption } from "./widget-strip-lanes";
 
 // Not part of the Settings struct, so re-render is driven by "settings-reset"
 // (same trick as autostartField) rather than the kit's normal hydration.
-let options: TaskbarMonitorOption[] = [];
-const ensureLoaded = lazyIpcField<TaskbarMonitorOption[]>("list_taskbar_monitors", (list) => {
+let options: MonitorOption[] = [];
+const ensureLoaded = lazyIpcField<MonitorOption[]>("list_taskbar_monitors", (list) => {
   options = list;
 });
 
