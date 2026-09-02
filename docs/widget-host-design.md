@@ -1,10 +1,13 @@
 # Widget host design: taskbar strip or floating overlay
 
-Status: **proposed, awaiting sign-off.** Written 2026-08-07 for
+Status: **approved; steps 1-3 and 5 shipped, step 4 is host-side only.** Written 2026-08-07 for
 `.claude/todos/07-widgets-rename-and-overlay-placement.md`, then revised once against two
 adversarial review passes (architectural correctness verified against the source, and product
-coherence verified against Joe's stated intent). No code has been written. This document is the
-deliverable that todo's Acceptance asks for.
+coherence verified against Joe's stated intent). Signed off 2026-09-02, when the two remaining
+questions (conductor's scope, and whether providers carry their own setting) were both closed.
+
+Step 4, provider suppression, is the only half still open: this repo sends the message, and no
+provider reads it yet. See "What ships in what order".
 
 ## Goal
 
@@ -90,8 +93,14 @@ different levels of readiness:
 - **conductor** (`src-tauri/src/bridge_conductor.rs`): the WS write half is dropped unused at line
   59, and the alternative outbound path (HTTP POST to `/api/rpc`) is gated by a `SAFE_METHODS`
   allowlist that lives in conductor's repo, not this one (verified: no such symbol exists here).
-  Conductor does not draw an overlay today, so nothing is needed from it now. If that ever changes,
-  the cheapest path is to stop dropping the write half.
+  **Nothing is sent to conductor, settled 2026-09-02 and not on readiness grounds.** Conductor's two
+  surfaces are not duplicates of what this app draws: its tray icon is the app icon plus status dots
+  (`claude_usage_in_taskbar/src-tauri/src/tray/icon_render.rs:82`), and its `session-overlay` window
+  only exists while the user holds it open from a tray left-click, destroyed on toggle
+  (`ipc/overlay_window.rs:143`). Neither is on screen unbidden, so neither is "the same thing
+  twice". Suppressing the tray icon would also take away conductor's only handle for settings and
+  quit. An earlier draft said conductor "does not draw an overlay"; that was wrong, and the ruling
+  survives the correction on its own reasoning.
 
 Protocol, sent on connect and again whenever the relevant settings change:
 
@@ -160,6 +169,34 @@ What pomodoro-overlay (the receiver, its own repo, out of scope here) should do 
   or big, the moment Widgets closes.
 
 The provider-side change lands in the `pomodoro-overlay` repo and is out of scope for this one.
+
+#### Correction 2026-09-02: pomodoro has one window, not two
+
+The two-field protocol reads as "hide surface A, leave surface B alone", but pomodoro-overlay has
+no surface B. `src-tauri/tauri.conf.json` declares a **single** window, label `main`, 280x80,
+`visible: false`. `set_window_fullscreen(true)` (`src-tauri/src/ipc/commands.rs:246`) resizes that
+same window to the monitor work area and shows it with `SW_SHOWNOACTIVATE`. Compact and fullscreen
+are two **modes of one window**.
+
+So `suppress_compact` is a mode gate, not a window gate. The rule the receiver implements:
+
+- While suppressed, `main` stays hidden **in compact mode**.
+- A fullscreen trigger still shows it fullscreen, because `suppress_fullscreen` is false.
+- When fullscreen exits (`exitOverlayFullscreen`, `src/shared/fullscreen.ts:41`), it returns to
+  hidden instead of back to the corner. That exit path is the one site that must consult the
+  suppression flag rather than unconditionally restoring the corner window.
+
+This is what Joe asked for on 2026-09-02, confirming his 2026-08-08 quote: "on pomodoro, id still
+want to have the option of showing the fullscreen break timer, i think thats helpful". The option
+itself is already pomodoro's own (`fullscreen_on_focus_end`, `meeting_break_fullscreen`,
+`src-tauri/src/settings.rs:30,47`) and `host_overlay` never touches it.
+
+**Blocker on the receiving side:** `dispatch_command` (`src-tauri/src/bridge.rs:150`) flattens every
+inbound line to `json!({"action": cmd, "phase": phase})` before emitting `bridge-command`, so
+`suppress_compact` and `suppress_fullscreen` are dropped before the frontend ever sees them. The
+provider half needs that function widened, not just a new frontend branch. The upside of the same
+finding: `host_overlay` currently arrives as an unrecognised `action` and is ignored, so the
+backwards-compatibility claim above holds in practice today, verified not assumed.
 
 ### 4. When Widgets closes, provider overlays come back immediately, driven by disconnect.
 
@@ -332,7 +369,11 @@ avoids the class of bug where the drag path and the settings path drift apart.
    drag-to-place, snapping, reset-position. **This is the first user-visible release.**
 4. **Provider suppression.** The `host_overlay` message on the pomodoro bridge - **this repo's half
    shipped 2026-08-08**, see decision 3's receiving contract - plus the matching change in the
-   `pomodoro-overlay` repo, which is separate work in that repo.
+   `pomodoro-overlay` repo, which is separate work in that repo. **Still open as of 2026-09-02:**
+   `host_overlay` has zero occurrences in the `pomodoro-overlay` tree, so this app has been sending
+   the message to a receiver that ignores it. Nothing in this repo is missing; the remaining work is
+   entirely in `pomodoro-overlay`, tracked in that repo's own backlog. Conductor is out of scope by
+   decision 3's 2026-09-02 ruling, so pomodoro is the whole of step 4.
 5. **The rename.** Shipped 2026-08-08. Product name and identifier kept exactly as-is (see decision
    5's note on the todo's later, more specific ruling); only user-visible strings changed.
 
@@ -359,9 +400,17 @@ Carried from the todo, plus what this design adds:
 - ~~Does `hosted:true` fire for any placement, or only overlay placement?~~ **Settled 2026-08-07:
   any placement in this app.** See decision 3.
 - ~~Scale steps or free resize?~~ **Settled 2026-08-07: free resize.** See decision 6.
+- ~~Does conductor need suppressing too?~~ **Settled 2026-09-02: nothing is sent to conductor.**
+  See decision 3's conductor bullet for the reasoning, which is about its surfaces not duplicating
+  anything, not about the write channel being unbuilt.
+- ~~Should the provider app carry its own setting for this, or only the host?~~ **Settled
+  2026-09-02: host-only, the 2026-08-07 ruling stands.** No opt-out in pomodoro or conductor. The
+  provider stays a pure receiver: obey the wire message, restore on disconnect. Only one place can
+  be wrong about suppression, and it is the place the user is already looking when configuring
+  widgets. A provider-side override would create the state where a widget is disabled in Widgets and
+  still nothing shows, with the cause in the other app's settings.
 
-Both design questions are now closed. The remaining gate is Joe reading this document and approving
-the approach as a whole.
+All design questions are now closed, and Joe approved the document as a whole on 2026-09-02.
 
 ## Open risks
 
