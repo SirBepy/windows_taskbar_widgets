@@ -189,6 +189,11 @@ pub fn position_strip(app: &AppHandle, window: &tauri::Window, strip_css_width: 
         let h = (bottom - top).max(1) as u32;
         let x = left + (left_margin * scale).round() as i32;
         (PhysicalSize::new(w.max(1), h), PhysicalPosition::new(x, top))
+    } else if window.label() != crate::strip::PRIMARY_LABEL {
+        // No taskbar on this strip's own monitor, so it is already hidden by
+        // strip_should_hide. The primary-work-area fallback below would move it onto the
+        // PRIMARY's screen, stacking a second strip there the moment anything shows it.
+        return Ok(());
     } else if let Ok(Some(monitor)) = window.primary_monitor() {
         let h = (48.0 * scale).round() as u32;
         let wa = monitor.work_area();
