@@ -90,17 +90,33 @@ different levels of readiness:
   send at the connect site right after `set_writer(app, Some(tx))` (`bridge_pomodoro.rs:81`).
   **pomodoro-overlay is the only provider that actually draws its own overlay, so it is the whole
   feature.**
-- **conductor** (`src-tauri/src/bridge_conductor.rs`): the WS write half is dropped unused at line
-  59, and the alternative outbound path (HTTP POST to `/api/rpc`) is gated by a `SAFE_METHODS`
-  allowlist that lives in conductor's repo, not this one (verified: no such symbol exists here).
-  **Nothing is sent to conductor, settled 2026-09-02 and not on readiness grounds.** Conductor's two
-  surfaces are not duplicates of what this app draws: its tray icon is the app icon plus status dots
-  (`claude_usage_in_taskbar/src-tauri/src/tray/icon_render.rs:82`), and its `session-overlay` window
-  only exists while the user holds it open from a tray left-click, destroyed on toggle
-  (`ipc/overlay_window.rs:143`). Neither is on screen unbidden, so neither is "the same thing
-  twice". Suppressing the tray icon would also take away conductor's only handle for settings and
-  quit. An earlier draft said conductor "does not draw an overlay"; that was wrong, and the ruling
-  survives the correction on its own reasoning.
+- **conductor** (`src-tauri/src/bridge_conductor.rs`): **shipped 2026-09-02**, and it is a different
+  shape from pomodoro's, because conductor's overlay was never the duplicate. Joe's ruling that
+  afternoon: the tray **left-click now opens the chat window** unconditionally, and the overlay
+  moves into the right-click menu as a "Show overlay" entry that is hidden while a host is drawing
+  the widget. So this app does not suppress a surface here, it displaces one.
+
+  Two earlier readings in this document were wrong and are corrected here. The first draft said
+  conductor "does not draw an overlay"; it does. The 2026-09-02 morning revision then said nothing
+  would ever be sent to conductor; that was reversed the same afternoon.
+
+  The transport claim was wrong too. `/api/rpc` is not a read-only allowlist: `SAFE_METHODS` already
+  contains `start_session` and `send_message`. More to the point, **no new endpoint was needed at
+  all.** The global stream socket this app is already authenticated on was reading inbound frames and
+  discarding them (`remote_ws_pump.rs`, `Some(Ok(_)) => {}`), and already noticed the client
+  vanishing on the next line. The whole channel was stopping the discard.
+
+  Wire format, sent on connect and on every settings save, mirroring pomodoro's timing exactly:
+
+  ```json
+  {"jsonrpc":"2.0","method":"host_overlay","params":{"hosted":true}}
+  ```
+
+  Conductor's daemon republishes it as a `widget_host_changed` notifier event, which reaches the
+  desktop app over the existing subscription and rebuilds the tray menu. `hosted` is tracked per
+  connection, so an unrelated browser client closing never clears a claim it did not make, and the
+  daemon publishes `hosted:false` when the socket drops - the same disconnect-driven restore
+  decision 4 specifies for pomodoro.
 
 Protocol, sent on connect and again whenever the relevant settings change:
 
@@ -400,9 +416,11 @@ Carried from the todo, plus what this design adds:
 - ~~Does `hosted:true` fire for any placement, or only overlay placement?~~ **Settled 2026-08-07:
   any placement in this app.** See decision 3.
 - ~~Scale steps or free resize?~~ **Settled 2026-08-07: free resize.** See decision 6.
-- ~~Does conductor need suppressing too?~~ **Settled 2026-09-02: nothing is sent to conductor.**
-  See decision 3's conductor bullet for the reasoning, which is about its surfaces not duplicating
-  anything, not about the write channel being unbuilt.
+- ~~Does conductor need suppressing too?~~ **Settled 2026-09-02, twice.** Ruled out that morning,
+  then reopened and reversed the same afternoon: conductor's tray left-click now opens the chat, and
+  its overlay moved to a right-click "Show overlay" entry hidden while hosted. See decision 3's
+  conductor bullet, which records both the reversal and the two factual errors behind the first
+  ruling.
 - ~~Should the provider app carry its own setting for this, or only the host?~~ **Settled
   2026-09-02: host-only, the 2026-08-07 ruling stands.** No opt-out in pomodoro or conductor. The
   provider stays a pure receiver: obey the wire message, restore on disconnect. Only one place can
