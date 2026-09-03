@@ -137,6 +137,7 @@ fn hide(app: &AppHandle) {
     }
     if let Some(fly) = app.get_webview_window("flyout") {
         let _ = fly.hide();
+        crate::window_park::park(&fly.as_ref().window());
     }
     let _ = app.emit_to("flyout", "flyout-hidden", ());
 }

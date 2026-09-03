@@ -58,3 +58,18 @@ Flyout dims are declared per widget in the `flyout` field of the `TaskbarWidget`
 `flyoutDims()` (optional) overrides `flyout` for the real hover-open only, recomputed each time -
 see "Per-open measured sizing" above. `flyout` itself stays a plain static fallback (settings
 preview, overlay min-size), since `widget.ts` is also imported in non-DOM test contexts.
+
+## A hidden window is not an absent window
+
+Hiding a window does not release the screen under it. Measured 2026-09-03: a hidden Tauri window
+still swallows every mouse click inside its rect, because the WebView2 composition layer keeps
+claiming that region after `hide()`. Windows routes nothing there and the app underneath never sees
+the click. `WindowFromPoint` still names the app underneath, so nothing but a real click reveals it.
+
+Joe hit this with a flyout that had never once been opened: it sat at its 104,104 build position and
+blanked a 340x400 block of the desktop, WhatsApp and Explorer included.
+
+So any window this app hides rather than destroys must also be moved off every monitor.
+`src-tauri/src/window_park.rs` is the one mechanism: `park` after `hide`, `unpark` before `show`. A
+window that sets its own position on every open (the flyout) needs only the `park` half. Strip
+windows are the known remaining gap, filed as todo 75.

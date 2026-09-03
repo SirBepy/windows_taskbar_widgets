@@ -147,6 +147,7 @@ struct SettingsNavigate {
 #[tauri::command]
 pub fn open_settings(app: AppHandle, section: Option<String>) {
     let Some(win) = app.get_webview_window("settings") else { return };
+    crate::window_park::unpark(&win.as_ref().window());
     let _ = win.show();
     let _ = win.set_focus();
     let _ = app.emit_to("settings", "settings-navigate", SettingsNavigate { section });

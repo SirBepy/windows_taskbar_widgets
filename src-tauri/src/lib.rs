@@ -15,6 +15,7 @@ mod system_stats;
 mod taskbar;
 mod tile_actions;
 mod tile_menu;
+mod window_park;
 
 use settings::{Settings, SettingsState};
 use std::sync::Mutex;
@@ -254,6 +255,13 @@ pub fn run() {
                 let _ = taskbar::position_strip(&handle, &window, 320.0);
                 let _ = win.show();
             }
+            // Both are built hidden and keep their build-time rect until first opened,
+            // which is exactly the state that eats clicks - see window_park.
+            for label in ["flyout", "settings"] {
+                if let Some(win) = handle.get_webview_window(label) {
+                    window_park::park(&win.as_ref().window());
+                }
+            }
             overlay::reconcile(&handle);
             // NOT strip::reconcile here: a secondary strip queued from setup is built on
             // the event loop's very first MainEventsCleared and its webview never leaves
@@ -279,6 +287,7 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
+                    window_park::park(window);
                 }
             }
         })
