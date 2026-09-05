@@ -214,6 +214,30 @@ provider half needs that function widened, not just a new frontend branch. The u
 finding: `host_overlay` currently arrives as an unrecognised `action` and is ignored, so the
 backwards-compatibility claim above holds in practice today, verified not assumed.
 
+#### The two bridges stay separate, deliberately (2026-09-05)
+
+`bridge_conductor.rs` and `bridge_pomodoro.rs` now carry the same four-part shape - a `*BridgeState`
+wrapper over `Mutex<Option<Sender>>`, a `set_writer`, a `*_hosted()` reading
+`Settings::is_widget_active`, and a `send_host_overlay` that resolves hosted, takes the bridge lock,
+builds a line and sends it. That symmetry is real and it is not being collapsed.
+
+What actually differs is everything the shape wraps. The channel types are unrelated
+(`std::sync::mpsc::Sender<String>` on a plain thread against
+`tokio::sync::mpsc::UnboundedSender<String>` in the async runtime), and so are the wire formats
+(pomodoro's flat `{"cmd":...}` with its own `suppress_compact`/`suppress_fullscreen` pair, against
+conductor's JSON-RPC `{"jsonrpc":"2.0","method":...}`). Tauri's state map keys on the concrete
+type, so even a generic `BridgeWriter<T>` still needs a distinct newtype per bridge for
+`try_state` to resolve - the wrapper collapses, the two declarations do not.
+
+That leaves roughly fifteen lines of genuine saving, bought with a generic indirection over two
+channel families, in two files neither of which has a single test to catch a wrong seam. The one
+piece worth sharing is not code at all: the "resolve hosted BEFORE taking the bridge lock" ordering,
+which both files already carry as a comment because holding the settings lock and a bridge lock at
+once is the one lock order nothing else here uses.
+
+A third provider bridge changes the arithmetic and this decision should be reopened then, not
+before.
+
 ### 4. When Widgets closes, provider overlays come back immediately, driven by disconnect.
 
 The provider restores its own overlay when the bridge connection **drops**, not on receipt of an
