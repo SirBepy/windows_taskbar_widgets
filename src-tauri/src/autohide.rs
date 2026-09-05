@@ -92,6 +92,10 @@ fn run_tick(app: &AppHandle, fullscreen_device: Option<&str>) {
         let visible = win.is_visible().unwrap_or(true);
         if hide_needed && visible {
             let _ = win.hide();
+            // A hidden strip still swallows clicks in its 468x48 band, which lands on top
+            // of whatever fullscreen app replaced it. No unpark: the show() branch below
+            // re-derives the position via reassert_position.
+            crate::window_park::park(&win.as_ref().window());
             // The flyout re-anchors to whichever strip is hovered (flyout.rs, step 6),
             // so close it only when the hiding strip is the one it's currently on.
             if crate::flyout::is_anchored_to(&label) {
