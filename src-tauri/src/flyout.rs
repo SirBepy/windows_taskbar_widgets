@@ -205,9 +205,7 @@ fn spawn_poll_loop(app: AppHandle, gen: u64, _strip_label: String) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(5));
         if POLL_GEN.load(Ordering::SeqCst) == gen {
-            if let Some(fly) = app.get_webview_window("flyout") {
-                let _ = fly.hide();
-            }
+            hide(&app);
         }
     });
 }
