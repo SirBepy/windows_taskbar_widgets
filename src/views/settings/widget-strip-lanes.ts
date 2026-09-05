@@ -1,5 +1,5 @@
 import { html, render, type TemplateResult } from "lit-html";
-import type { MonitorOption } from "../../shared/monitors";
+import { monitorNumber, type MonitorOption } from "../../shared/monitors";
 import { widgetById } from "../../widgets/registry";
 
 interface Mounted {
@@ -11,12 +11,6 @@ const mounted = new Map<string, Mounted>();
 let laneChromeKey = "";
 
 // ---------- chrome ----------
-
-/** Windows' own numbering: the 2 in `\\.\DISPLAY2` is the "2" its Display settings
- * shows. Falls back to lane order for a device name outside that shape. */
-function monitorNumber(m: MonitorOption, i: number): string {
-  return /DISPLAY(\d+)$/.exec(m.device_name)?.[1] ?? String(i + 1);
-}
 
 function monitorLabel(m: MonitorOption, i: number): string {
   if (m.device_name === "") return "Taskbar";
