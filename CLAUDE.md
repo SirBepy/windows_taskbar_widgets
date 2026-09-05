@@ -72,4 +72,5 @@ blanked a 340x400 block of the desktop, WhatsApp and Explorer included.
 So any window this app hides rather than destroys must also be moved off every monitor.
 `src-tauri/src/window_park.rs` is the one mechanism: `park` after `hide`, `unpark` before `show`. A
 window that sets its own position on every open (the flyout) needs only the `park` half. Strip
-windows are the known remaining gap, filed as todo 75.
+windows fall under that same half: `autohide.rs`'s `run_tick` parks after `hide`, and its `show`
+branch re-derives the position through `reassert_position` rather than unparking.
