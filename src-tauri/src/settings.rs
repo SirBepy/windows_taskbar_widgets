@@ -136,8 +136,8 @@ impl Settings {
             .collect()
     }
 
-    /// Any non-hidden placement of `widget_id` on any monitor - what
-    /// bridge_pomodoro.rs needs, since it only knows a kind, never a placement.
+    /// Any non-hidden placement of `widget_id` on any monitor, taskbar or overlay -
+    /// the question a caller asks when it knows a kind but never a placement.
     /// Checks both hidden_widgets shapes, same reasoning as `is_active` above.
     pub fn is_widget_active(&self, widget_id: &str) -> bool {
         self.monitor_widgets.all().any(|si| {
