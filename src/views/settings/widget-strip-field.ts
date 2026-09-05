@@ -8,7 +8,8 @@ import { dividerWidget } from "../../widgets/divider";
 import { allWidgetIds, allWidgets } from "../../widgets/registry";
 import { fetchStatsOnce } from "../../widgets/system-shared";
 import { renderConfig } from "./widget-strip-config";
-import { disposeLanes, type MonitorOption, renderLanes } from "./widget-strip-lanes";
+import type { MonitorOption } from "../../shared/monitors";
+import { disposeLanes, renderLanes } from "./widget-strip-lanes";
 import { insertAt, removeFirst } from "./widget-strip-dnd";
 import { isStripDragActive, NEW_DIVIDER, wireStripDrag } from "./widget-strip-drag";
 

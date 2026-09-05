@@ -1,12 +1,6 @@
 import { html, render, type TemplateResult } from "lit-html";
+import type { MonitorOption } from "../../shared/monitors";
 import { widgetById } from "../../widgets/registry";
-
-export interface MonitorOption {
-  device_name: string;
-  is_primary: boolean;
-  width: number;
-  height: number;
-}
 
 interface Mounted {
   el: HTMLElement;

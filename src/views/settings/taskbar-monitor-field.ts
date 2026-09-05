@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from "lit-html";
 import type { CustomField } from "../../../vendor/tauri_kit/frontend/settings/schema";
 import { lazyIpcField } from "./lazy-ipc-field";
-import type { MonitorOption } from "./widget-strip-lanes";
+import type { MonitorOption } from "../../shared/monitors";
 
 // Not part of the Settings struct, so re-render is driven by "settings-reset"
 // (same trick as autostartField) rather than the kit's normal hydration.
