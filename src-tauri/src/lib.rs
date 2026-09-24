@@ -13,6 +13,7 @@ mod spotify_smtc;
 mod strip;
 mod system_stats;
 mod taskbar;
+mod thread_watchdog;
 mod tile_actions;
 mod tile_menu;
 mod window_park;
@@ -271,6 +272,7 @@ pub fn run() {
             bridge_conductor::spawn(handle.clone());
             bridge_pomodoro::spawn(handle.clone());
             spotify_smtc::spawn(handle.clone());
+            thread_watchdog::spawn();
             if let Err(e) = build_tray(&handle) {
                 eprintln!("failed to build tray: {e}");
             }
