@@ -63,6 +63,8 @@ windows = { version = "0.62", features = [
     "Media",
     "Foundation",
     "Storage_Streams",
+    # Win32_System_Com: CoInitializeEx, see block_on_local's doc comment in spotify_smtc.rs.
+    "Win32_System_Com",
 ] }
 base64 = "0.22"
 

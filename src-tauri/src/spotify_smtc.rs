@@ -2,10 +2,11 @@
 //! a general "now playing" surface every media app registers with - filtered here to the
 //! one session whose AUMID contains "spotify" so a browser tab never gets picked up instead.
 //! Polling loop, patterned after bridge_conductor.rs's spawn/run shape.
+use crate::settings::SettingsState;
 use base64::Engine;
 use serde::Serialize;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession as Session,
     GlobalSystemMediaTransportControlsSessionManager as SessionManager,
@@ -34,7 +35,20 @@ pub struct SpotifyNowPlaying {
 // cross a tauri::async_runtime::spawn/#[tauri::command] boundary (both need Send futures).
 // Real WinRT work runs on its own OS thread via block_on_local; only plain Send data
 // (Option<SpotifyNowPlaying>, Result<(), String>) crosses back out.
+//
+// Every caller (the persistent poll loop and each spawn_blocking command) lands on a
+// thread with no COM apartment of its own, and WinRT's async completions are delivered
+// through COM. CoInitializeEx makes sure one exists before any WinRT await runs, so a
+// completion has somewhere to land instead of never firing - see todo 79's hypothesis
+// that a missing apartment here is what let the OS thread pool spin up threads without
+// bound trying to service a backlog that could never drain. S_FALSE (already
+// initialized on this thread) and RPC_E_CHANGED_MODE (already STA) are both fine to
+// ignore: either way a usable apartment exists by the time this returns.
 fn block_on_local<F: std::future::Future>(fut: F) -> F::Output {
+    unsafe {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -46,10 +60,21 @@ pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || block_on_local(run(app)));
 }
 
+/// Mirrors bridge_pomodoro's/bridge_conductor's own hosted-check: only poll Windows'
+/// SMTC while the widget is actually enabled somewhere. Was previously unconditional,
+/// so this app polled SMTC every second forever even with spotify permanently hidden.
+fn spotify_active(app: &AppHandle) -> bool {
+    app.try_state::<SettingsState>()
+        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active("spotify")))
+        .unwrap_or(false)
+}
+
 async fn run(app: AppHandle) {
     loop {
-        let payload = fetch_now_playing().await;
-        let _ = app.emit("spotify-now-playing", payload);
+        if spotify_active(&app) {
+            let payload = fetch_now_playing().await;
+            let _ = app.emit("spotify-now-playing", payload);
+        }
         tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
     }
 }
