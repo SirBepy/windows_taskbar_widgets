@@ -4444,6 +4444,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri_kit_webview_recovery"
+version = "0.0.1"
+dependencies = [
+ "log",
+ "tauri",
+ "webview2-com",
+ "windows-core 0.61.2",
+]
+
+[[package]]
 name = "tauri_kit_window"
 version = "0.0.1"
 dependencies = [
@@ -5767,6 +5777,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri_kit_settings",
  "tauri_kit_updater",
+ "tauri_kit_webview_recovery",
  "tauri_kit_window",
  "tempfile",
  "tokio",

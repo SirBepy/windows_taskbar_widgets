@@ -240,6 +240,7 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .plugin(tauri_kit_webview_recovery::plugin())
         .setup(|app| {
             let handle = app.handle().clone();
             log::info!("app started; version={}", env!("CARGO_PKG_VERSION"));
