@@ -1,7 +1,7 @@
 //! TCP client for pomodoro-overlay's newline-delimited JSON widget bridge
 //! (see that repo's src-tauri/src/bridge.rs). std::thread + std::net, not
 //! tokio: the protocol is a plain line-based loopback socket.
-use crate::settings::SettingsState;
+use crate::settings::widget_active;
 use serde::Deserialize;
 use serde_json::json;
 use std::io::{BufRead, BufReader, Write};
@@ -92,9 +92,7 @@ fn set_writer(app: &AppHandle, tx: Option<Sender<String>>) {
 /// Any non-hidden placement of "pomodoro", taskbar or overlay, on any monitor
 /// (design doc decision 3).
 fn pomodoro_hosted(app: &AppHandle) -> bool {
-    app.try_state::<SettingsState>()
-        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active("pomodoro")))
-        .unwrap_or(false)
+    widget_active(app, "pomodoro")
 }
 
 /// No-op while disconnected: a fresh connect resends it, so nothing is lost.

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_kit_settings::KitSettings;
 
 // x/y are CSS px relative to the monitor's work area, never desktop coords, so a
@@ -149,6 +149,15 @@ impl Settings {
 }
 
 pub struct SettingsState(pub Mutex<Settings>);
+
+/// `Settings::is_widget_active` read through the managed state, for background
+/// loops that only hold an AppHandle. False before the state is managed or when
+/// the lock is poisoned, so a loop that races setup just skips a tick.
+pub fn widget_active(app: &AppHandle, widget_id: &str) -> bool {
+    app.try_state::<SettingsState>()
+        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active(widget_id)))
+        .unwrap_or(false)
+}
 
 const SETTINGS_FILENAME: &str = "settings.json";
 

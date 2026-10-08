@@ -1,7 +1,7 @@
 //! Live-push bridge into Claude Conductor's daemon: WS usage snapshots plus
 //! an on-demand refresh RPC. conductor_data.rs's 30s DB poll stays the
 //! fallback; this only makes updates arrive sooner when the daemon is up.
-use crate::settings::SettingsState;
+use crate::settings::widget_active;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -60,9 +60,7 @@ fn set_writer(app: &AppHandle, tx: Option<UnboundedSender<String>>) {
 /// Any non-hidden placement of "conductor", taskbar or overlay, on any monitor.
 /// Same trigger as pomodoro's, so one rule covers both providers.
 fn conductor_hosted(app: &AppHandle) -> bool {
-    app.try_state::<SettingsState>()
-        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active("conductor")))
-        .unwrap_or(false)
+    widget_active(app, "conductor")
 }
 
 /// Tells conductor whether we are drawing its widget, so its tray menu can drop

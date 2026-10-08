@@ -2,11 +2,11 @@
 //! a general "now playing" surface every media app registers with - filtered here to the
 //! one session whose AUMID contains "spotify" so a browser tab never gets picked up instead.
 //! Polling loop, patterned after bridge_conductor.rs's spawn/run shape.
-use crate::settings::SettingsState;
+use crate::settings::widget_active;
 use base64::Engine;
 use serde::Serialize;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession as Session,
     GlobalSystemMediaTransportControlsSessionManager as SessionManager,
@@ -64,9 +64,7 @@ pub fn spawn(app: AppHandle) {
 /// SMTC while the widget is actually enabled somewhere. Was previously unconditional,
 /// so this app polled SMTC every second forever even with spotify permanently hidden.
 fn spotify_active(app: &AppHandle) -> bool {
-    app.try_state::<SettingsState>()
-        .and_then(|s| s.0.lock().ok().map(|g| g.is_widget_active("spotify")))
-        .unwrap_or(false)
+    widget_active(app, "spotify")
 }
 
 async fn run(app: AppHandle) {
