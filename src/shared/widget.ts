@@ -60,6 +60,7 @@ export interface Settings {
   stats_poll_seconds: number;
   opacity: number;
   follow_taskbar: boolean;
+  move_on_fullscreen: boolean;
   hide_from_capture: boolean;
   taskbar_monitor: string;
   widget_config: Record<string, Record<string, unknown>>;
@@ -136,6 +137,19 @@ export function instancesForMonitor(
   const instances = settings?.monitor_widgets?.[monitorKey];
   if (!instances) return whole();
   return instances.filter((si) => ids.includes(si.widget_id));
+}
+
+/** Settings with `monitor_widgets` swapped for the runtime-effective lanes (relocated by
+ * fullscreen cover), for the strip's own rendering path only. `effective` absent (fetch failed)
+ * falls back to `settings` unchanged - the persisted lanes are a safer render than nothing.
+ * The Settings window must never call this: it needs the persisted lanes, or a `set_lanes`
+ * write would bake a temporary relocation in permanently. */
+export function withEffectiveMonitorWidgets(
+  settings: Settings | null,
+  effective: Record<string, StripInstance[]> | null | undefined,
+): Settings | null {
+  if (!settings || !effective) return settings;
+  return { ...settings, monitor_widgets: effective };
 }
 
 /** Registry widgets a user's settings.json has never seen, minus any they already hid. */
