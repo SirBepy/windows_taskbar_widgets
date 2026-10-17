@@ -9,8 +9,11 @@ use tauri::{
 pub const LABEL_PREFIX: &str = "overlay-";
 
 // Only reached by a hand-written placement; the settings UI always writes real dims.
-const FALLBACK_W: f64 = 280.0;
-const FALLBACK_H: f64 = 180.0;
+// pub(crate): monitor_swap's clamp needs the same fallback geometry() uses, or a
+// freshly-placed overlay would clamp against a size different from the one it's
+// actually drawn at.
+pub(crate) const FALLBACK_W: f64 = 280.0;
+pub(crate) const FALLBACK_H: f64 = 180.0;
 // Keeps a dragged overlay grabbable: this much always stays inside the monitor.
 const MIN_VISIBLE: f64 = 48.0;
 

@@ -4,6 +4,7 @@ mod bridge_conductor;
 mod bridge_pomodoro;
 mod conductor_data;
 mod flyout;
+mod monitor_swap;
 mod monitor_widgets;
 mod overlay;
 mod pending_queue;
@@ -154,9 +155,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
     let hide_strips =
         MenuItem::with_id(app, "hide-strips", HIDE_STRIPS_LABEL, true, None::<&str>)?;
+    let swap_monitors =
+        MenuItem::with_id(app, "swap-monitors", "Swap monitors", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&settings, &hide_strips, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&settings, &hide_strips, &swap_monitors, &separator, &quit])?;
     let icon: Image = match app.default_window_icon() {
         Some(i) => i.clone(),
         None => Image::from_bytes(include_bytes!("../icons/32x32.png"))?,
@@ -170,6 +173,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "quit" => app.exit(0),
             "settings" => tile_menu::open_settings(app.clone(), None),
             "hide-strips" => toggle_all_strips(app),
+            "swap-monitors" => monitor_swap::swap_monitors(app),
             _ => {}
         })
         .on_tray_icon_event(move |tray, event| match event {
