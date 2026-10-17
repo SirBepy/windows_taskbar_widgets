@@ -21,6 +21,11 @@ export const settingsSchema = defineSchema({
           label: "Only show when the taskbar is visible",
         },
         {
+          key: "move_on_fullscreen",
+          kind: "toggle",
+          label: "Move widgets to the other monitor when one goes fullscreen",
+        },
+        {
           key: "hide_from_capture",
           kind: "toggle",
           label: "Hide from screen sharing and recording",

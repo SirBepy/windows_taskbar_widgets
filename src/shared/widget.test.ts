@@ -9,6 +9,7 @@ import {
   placementOf,
   stripNeedsRemount,
   stripTileInstances,
+  withEffectiveMonitorWidgets,
   type Settings,
   type TaskbarWidget,
 } from "./widget";
@@ -230,6 +231,52 @@ describe("instancesForMonitor", () => {
   // a lane entry renders nowhere, which is why main() re-reads settings after adopting.
   it("drops an enabled id that has no instance in any lane", () => {
     expect(instancesForMonitor(["cpu", "pomodoro"], settings, "")).toEqual([si("cpu")]);
+  });
+});
+
+describe("withEffectiveMonitorWidgets", () => {
+  const settings = {
+    monitor_widgets: { "": [si("cpu")], DISPLAY2: [si("gpu")] },
+  } as unknown as Settings;
+
+  it("substitutes the effective map for monitor_widgets", () => {
+    const effective = { "": [], DISPLAY2: [si("gpu"), si("cpu")] };
+
+    expect(withEffectiveMonitorWidgets(settings, effective)?.monitor_widgets).toEqual(effective);
+  });
+
+  it("falls back to the persisted settings when no effective map was fetched", () => {
+    expect(withEffectiveMonitorWidgets(settings, null)).toBe(settings);
+    expect(withEffectiveMonitorWidgets(settings, undefined)).toBe(settings);
+  });
+
+  it("leaves null settings as null", () => {
+    expect(withEffectiveMonitorWidgets(null, { "": [] })).toBeNull();
+  });
+
+  // The feature itself: a strip whose effective lane gained instances moved from the
+  // covered monitor renders its own tiles first, then the moved ones appended after.
+  it("feeds instancesForMonitor the moved-in instances after the lane's own", () => {
+    const effective = { DISPLAY2: [si("gpu"), si("cpu")] };
+    const merged = withEffectiveMonitorWidgets(settings, effective);
+
+    expect(instancesForMonitor(["cpu", "gpu"], merged, "DISPLAY2")).toEqual([si("gpu"), si("cpu")]);
+  });
+});
+
+describe("stripNeedsRemount with effective lanes", () => {
+  // A relocation moves "cpu" off DISPLAY2's lane into "" without changing any widget's
+  // enabled/hidden state - stripNeedsRemount must still see this monitor's instance list
+  // change and remount it, rather than comparing against the persisted (unmoved) lane.
+  it("is true for a relocation-only change (same widget ids, different monitor)", () => {
+    const settings = { monitor_widgets: {} } as unknown as Settings;
+    const before = withEffectiveMonitorWidgets(settings, { "": [si("cpu")], DISPLAY2: [si("gpu")] });
+    const after = withEffectiveMonitorWidgets(settings, { "": [], DISPLAY2: [si("gpu"), si("cpu")] });
+
+    const prev = instancesForMonitor(["cpu", "gpu"], before, "DISPLAY2");
+    const next = instancesForMonitor(["cpu", "gpu"], after, "DISPLAY2");
+
+    expect(stripNeedsRemount(prev, next)).toBe(true);
   });
 });
 

@@ -13,6 +13,7 @@ import {
   stripNeedsRemount,
   stripTileInstances,
   TaskbarWidget,
+  withEffectiveMonitorWidgets,
 } from "./shared/widget";
 
 reportErrors("strip");
@@ -91,8 +92,13 @@ function wireContextMenu(tile: HTMLElement, widget: TaskbarWidget, instanceId: s
   });
 }
 
-const visibleInstances = (ids: string[], settings: Settings | null) =>
-  stripTileInstances(instancesForMonitor(ids, settings, monitorKey), settings);
+// `effective` is the runtime-relocated map (get_effective_monitor_widgets); it is never
+// what the Settings window reads, only this strip's own render path - see widget.ts.
+const visibleInstances = (
+  ids: string[],
+  settings: Settings | null,
+  effective: Record<string, StripInstance[]> | null,
+) => stripTileInstances(instancesForMonitor(ids, withEffectiveMonitorWidgets(settings, effective), monitorKey), settings);
 
 // A widget placed as a floating overlay gets its own window instead of a tile, so
 // it is dropped here rather than filtered out of enabled_widgets (which would lose
@@ -119,6 +125,9 @@ function renderTiles(instances: StripInstance[]) {
 async function main() {
   let settings = await invoke<Settings>("get_settings").catch(() => null);
   monitorKey = await invoke<string>("strip_monitor_key").catch(() => null);
+  let effective = await invoke<Record<string, StripInstance[]>>(
+    "get_effective_monitor_widgets",
+  ).catch(() => null);
   let enabled = settings?.enabled_widgets ?? ["cpu", "ram", "gpu", "disk", "conductor"];
   const hidden = settings?.hidden_widgets ?? [];
   // New registry widgets (added after a user's settings.json was written) default
@@ -131,21 +140,29 @@ async function main() {
     // the pre-adoption settings would filter the new widget out for the whole session.
     await invoke("reorder_widgets", { order: enabled }).catch(() => {});
     settings = (await invoke<Settings>("get_settings").catch(() => null)) ?? settings;
+    effective =
+      (await invoke<Record<string, StripInstance[]>>("get_effective_monitor_widgets").catch(
+        () => null,
+      )) ?? effective;
   }
   row = document.getElementById("strip")!;
 
   applyOpacity(settings);
-  renderTiles(visibleInstances(enabled, settings));
+  renderTiles(visibleInstances(enabled, settings, effective));
   const forceReport = reportStripWidth(row);
 
   listen("widgets-changed", async () => {
     const s = await invoke<Settings>("get_settings").catch(() => null);
     applyOpacity(s);
     monitorKey = await invoke<string>("strip_monitor_key").catch(() => monitorKey);
+    const eff = await invoke<Record<string, StripInstance[]>>(
+      "get_effective_monitor_widgets",
+    ).catch(() => null);
     // Config-only saves (opacity, margin, hide_from_capture, show_temp...) reach mounted
-    // tiles via subscribeSettings; only a tile-membership/order change remounts the strip.
+    // tiles via subscribeSettings; only a tile-membership/order change (including a
+    // fullscreen-driven relocation between monitors) remounts the strip.
     if (s) {
-      const next = visibleInstances(s.enabled_widgets, s);
+      const next = visibleInstances(s.enabled_widgets, s, eff);
       if (stripNeedsRemount(lastVisibleInstances, next)) renderTiles(next);
     }
     forceReport();
