@@ -32,6 +32,12 @@ on 2026-08-07 over fixed scale steps. The invariant the rule actually protects s
 content never changes an overlay's size, only the user's grip does, and the widget's declared
 `overlay`/`flyout` dims are enforced natively as the minimum it can be shrunk to.
 
+**A fullscreen move** (`move_on_fullscreen`, `src-tauri/src/relocation.rs`) lets a strip grow once
+when a fullscreen app covers the other monitor and that monitor's widgets are appended to it, then
+shrink once when the fullscreen app goes away. Chosen by Joe on 2026-10-17 ("append after its own
+widgets"). It is a layout event, two resizes per fullscreen session, never a resize on a live value.
+Each tile inside keeps its own fixed size throughout.
+
 **Per-open measured sizing** (conductor's `flyoutDims()`, `src/widgets/conductor.ts`) is the
 pattern for a widget whose max case has no natural cap (an account list, unlike a process list
 capped at "top N"). The size is still fixed once the flyout is open - it's recomputed once, at
