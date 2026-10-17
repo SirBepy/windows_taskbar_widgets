@@ -98,19 +98,7 @@ pub(crate) fn primary_monitor_device(app: &AppHandle) -> String {
 /// instead of its own inline per-monitor computation. A monitor with no name is
 /// skipped; nothing can target it.
 pub(crate) fn connected_work_areas(app: &AppHandle) -> HashMap<String, (f64, f64)> {
-    app.available_monitors()
-        .map(|monitors| {
-            monitors
-                .into_iter()
-                .filter_map(|m| {
-                    let name = m.name()?.clone();
-                    let scale = m.scale_factor();
-                    let wa = m.work_area();
-                    Some((name, (wa.size.width as f64 / scale, wa.size.height as f64 / scale)))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    connected_devices_and_work_areas(app).1
 }
 
 /// `connected_monitor_devices` and `connected_work_areas` together, from one
