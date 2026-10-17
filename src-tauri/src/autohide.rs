@@ -65,6 +65,11 @@ pub fn spawn_poller(app: AppHandle) {
         // loop last emitted "widgets-changed" for, so that event fires on a real layout
         // change only, never once per 250ms tick.
         let mut prev_effective = crate::relocation::effective_from_app(&app);
+        // Same change-only contract as prev_effective, for overlays: a relocated
+        // overlay needs its window actually moved (overlay::reconcile), which
+        // widgets-changed alone doesn't do - that event only makes a live overlay
+        // re-read opacity/settings, never geometry (see overlay-main.ts's listener).
+        let mut prev_effective_overlays = crate::relocation::effective_overlays_from_app(&app);
         loop {
             std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
             // Tracked even while USER_HIDDEN, so a stale flip doesn't fire the
@@ -82,6 +87,11 @@ pub fn spawn_poller(app: AppHandle) {
             if effective != prev_effective {
                 let _ = app.emit("widgets-changed", ());
                 prev_effective = effective;
+            }
+            let effective_overlays = crate::relocation::effective_overlays_from_app(&app);
+            if effective_overlays != prev_effective_overlays {
+                crate::overlay::reconcile(&app);
+                prev_effective_overlays = effective_overlays;
             }
             crate::strip::reconcile(&app);
             if USER_HIDDEN.load(Ordering::SeqCst) {
