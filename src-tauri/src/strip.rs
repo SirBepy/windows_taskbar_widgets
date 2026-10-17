@@ -110,9 +110,16 @@ pub fn strip_monitor_key(app: AppHandle, window: tauri::Window) -> String {
 }
 
 /// Wanted strip labels for the live monitor set. The primary always maps to the bare
-/// `strip` label regardless of instances (zero change for single-monitor); every other
-/// live monitor maps to `label_for(device)` only if it has instances. A `monitor_widgets`
-/// key with no matching live monitor is never visited, so it produces no label.
+/// `strip` label regardless of instances, including a present-but-emptied lane (a user
+/// who moved every widget off the primary monitor in the lanes UI): `reconcile`'s close
+/// loop already excludes `PRIMARY_LABEL` unconditionally, so gating it out here would
+/// change nothing about whether the window exists, and `lib.rs`, `autohide.rs`,
+/// `system_stats/poller.rs` and `taskbar/rect.rs` all look it up via
+/// `get_webview_window(PRIMARY_LABEL)` assuming it is always `Some`. The empty-lane
+/// visual bug lives entirely on the TS side (`instancesForMonitor` rendering zero
+/// tiles into the transparent strip row), not here. Every other live monitor maps to
+/// `label_for(device)` only if it has instances. A `monitor_widgets` key with no
+/// matching live monitor is never visited, so it produces no label.
 pub fn wanted_strip_labels(widgets: &MonitorWidgets, live_monitors: &[(String, bool)]) -> Vec<String> {
     live_monitors
         .iter()
@@ -276,6 +283,16 @@ mod tests {
         let live = [(r"\\.\DISPLAY1".to_string(), true), (r"\\.\DISPLAY2".to_string(), false)];
         let labels = wanted_strip_labels(&widgets, &live);
         assert_eq!(labels, vec![PRIMARY_LABEL.to_string(), label_for(r"\\.\DISPLAY2")]);
+    }
+
+    #[test]
+    fn primary_with_present_but_empty_lane_still_gets_bare_label() {
+        // Mirrors apply_lanes writing an explicit [] for a monitor the lanes UI emptied:
+        // present-and-empty must not make the primary window disappear (see the
+        // dependency chain in wanted_strip_labels's own doc comment).
+        let widgets = MonitorWidgets(HashMap::from([(r"\\.\DISPLAY1".to_string(), vec![])]));
+        let live = [(r"\\.\DISPLAY1".to_string(), true)];
+        assert_eq!(wanted_strip_labels(&widgets, &live), vec![PRIMARY_LABEL.to_string()]);
     }
 
     #[test]

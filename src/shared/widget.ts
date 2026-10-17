@@ -120,7 +120,11 @@ export function stripNeedsRemount(prev: StripInstance[], next: StripInstance[]):
 
 /** One strip window's share of `ids`, in the lane's own order. Instances, not kinds: a lane
  * may hold two copies of one kind and the tile menu must act on the one right-clicked. An
- * unresolved or empty lane returns `ids` whole - a blank strip is worse than a duplicated one. */
+ * unresolved key (null monitorKey, or one no settings write has ever touched) returns `ids`
+ * whole - a blank strip is worse than a duplicated one. A key that IS present but holds `[]`
+ * is different: apply_lanes (tile_actions.rs) writes that explicit empty array when the user
+ * empties a monitor's lane in the settings UI, so present-and-empty means "show nothing here",
+ * not "unresolved" - it must not fall back to the whole list. */
 export function instancesForMonitor(
   ids: string[],
   settings: Settings | null | undefined,
@@ -130,7 +134,7 @@ export function instancesForMonitor(
     ids.map((id) => ({ instance_id: instanceIdFor(settings, id), widget_id: id }));
   if (monitorKey === null) return whole();
   const instances = settings?.monitor_widgets?.[monitorKey];
-  if (!instances || instances.length === 0) return whole();
+  if (!instances) return whole();
   return instances.filter((si) => ids.includes(si.widget_id));
 }
 
