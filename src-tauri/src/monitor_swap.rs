@@ -83,30 +83,23 @@ pub fn clamp_to_monitor(spec: &OverlaySpec, work_w: f64, work_h: f64) -> Overlay
 /// `set_lanes`'s persist + emit + reconcile sequence so live strips and overlays move
 /// in the same atomic step, never a moment with a widget on both monitors or neither.
 pub fn swap_monitors(app: &AppHandle) {
-    let monitors = match app.available_monitors() {
-        Ok(m) => m,
-        Err(e) => {
-            log::error!("swap monitors: available_monitors failed: {e}");
-            return;
-        }
-    };
-    let mut infos: Vec<(String, f64, f64)> = monitors
-        .iter()
-        .filter_map(|m| {
-            let name = m.name()?.clone();
-            let scale = m.scale_factor();
-            let wa = m.work_area();
-            Some((name, wa.size.width as f64 / scale, wa.size.height as f64 / scale))
-        })
-        .collect();
-    if infos.len() != 2 {
-        log::info!("swap monitors: need exactly 2 monitors, found {} - no-op", infos.len());
+    let connected = crate::relocation::connected_monitor_devices(app);
+    if connected.len() != 2 {
+        log::info!("swap monitors: need exactly 2 monitors, found {} - no-op", connected.len());
         return;
     }
-    let (device_b, work_w_b, work_h_b) = infos.pop().unwrap();
-    let (device_a, work_w_a, work_h_a) = infos.pop().unwrap();
-    let primary_device =
-        app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned()).unwrap_or_default();
+    let work_areas = crate::relocation::connected_work_areas(app);
+    let device_a = connected[0].clone();
+    let device_b = connected[1].clone();
+    let Some(&(work_w_a, work_h_a)) = work_areas.get(&device_a) else {
+        log::error!("swap monitors: no work area for {device_a}");
+        return;
+    };
+    let Some(&(work_w_b, work_h_b)) = work_areas.get(&device_b) else {
+        log::error!("swap monitors: no work area for {device_b}");
+        return;
+    };
+    let primary_device = crate::relocation::primary_monitor_device(app);
 
     let mut settings = {
         let state = app.state::<SettingsState>();

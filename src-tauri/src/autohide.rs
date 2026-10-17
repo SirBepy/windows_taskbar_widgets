@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::monitor_widgets::MonitorWidgets;
 use crate::taskbar::DetectedTaskbar;
 
 // toggle_all_strips is the sole writer; true means the user explicitly hid the strips,
@@ -82,22 +83,24 @@ pub fn spawn_poller(app: AppHandle) {
             prev_covered = covered.clone();
             // Recomputed every tick (cheap map compare) since a relocation-relevant
             // change isn't only the covered set: move_on_fullscreen can flip from a
-            // save_settings call this thread never otherwise observes.
+            // save_settings call this thread never otherwise observes. Computed once
+            // here and shared with strip::reconcile_with/run_tick below, rather than
+            // each recomputing its own settings lock plus monitor enumeration.
             let effective = crate::relocation::effective_from_app(&app);
             if effective != prev_effective {
                 let _ = app.emit("widgets-changed", ());
-                prev_effective = effective;
+                prev_effective = effective.clone();
             }
             let effective_overlays = crate::relocation::effective_overlays_from_app(&app);
             if effective_overlays != prev_effective_overlays {
-                crate::overlay::reconcile(&app);
+                crate::overlay::reconcile_with(&app, effective_overlays.clone());
                 prev_effective_overlays = effective_overlays;
             }
-            crate::strip::reconcile(&app);
+            crate::strip::reconcile_with(&app, &effective);
             if USER_HIDDEN.load(Ordering::SeqCst) {
                 continue;
             }
-            run_tick(&app, &covered);
+            run_tick(&app, &covered, &effective);
         }
     });
 }
@@ -114,8 +117,10 @@ fn store_covered(_devices: &[String]) {}
 
 /// One tick: ONE `enumerate_taskbars()` Win32 pass, then every live strip is matched
 /// against that in-memory `Vec<DetectedTaskbar>` via `taskbar_hidden_for` - no strip
-/// re-enumerates, which is the N-times-the-polling-cost the plan forbids.
-fn run_tick(app: &AppHandle, covered: &[String]) {
+/// re-enumerates, which is the N-times-the-polling-cost the plan forbids. `effective`
+/// is `spawn_poller`'s own layout for this same tick, passed in rather than
+/// recomputed here, for the same reason.
+fn run_tick(app: &AppHandle, covered: &[String], effective: &MonitorWidgets) {
     let taskbars = crate::taskbar::enumerate_taskbars();
     let (follow_taskbar, taskbar_monitor) = app
         .try_state::<crate::settings::SettingsState>()
@@ -131,7 +136,6 @@ fn run_tick(app: &AppHandle, covered: &[String]) {
     // - emptied in Settings, or just relocated away - hides even though it isn't
     // docked-taskbar-hidden or fullscreen-covered. `monitor_key_for_label` resolves by
     // OS-primary identity, same convention `strip_monitor_key` uses for the frontend.
-    let effective = crate::relocation::effective_from_app(app);
     let effective_keys: Vec<String> = effective.0.keys().cloned().collect();
     let os_primary = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
 
@@ -150,7 +154,7 @@ fn run_tick(app: &AppHandle, covered: &[String]) {
             app.state::<crate::strip::StripState>().0.lock().ok().and_then(|m| m.get(label.as_str()).cloned())
         };
         let monitor_key = crate::strip::monitor_key_for_label(&effective_keys, os_primary.as_deref(), &label);
-        let empty_lane = crate::relocation::lane_is_present_and_empty(&effective, &monitor_key);
+        let empty_lane = crate::relocation::lane_is_present_and_empty(effective, &monitor_key);
         let hide_needed =
             empty_lane || strip_should_hide(device.as_deref(), &taskbars, follow_taskbar, covered, forced_visible);
         let visible = win.is_visible().unwrap_or(true);
