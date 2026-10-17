@@ -115,21 +115,31 @@ fn apply_geometry(app: &AppHandle, win: &tauri::WebviewWindow, spec: &OverlaySpe
 /// Creates, moves, resizes and closes overlay windows so the live set matches settings.
 /// One path for startup, a settings change, and a drag, so they cannot drift apart.
 pub fn reconcile(app: &AppHandle) {
+    // Relocation-aware: an overlay whose stored monitor is fullscreen-covered lands
+    // on the same target monitor the strip on that lane moves to (relocation.rs),
+    // clamped into that monitor's real work area. The spec saved in settings never
+    // changes, so once nothing covers it the next reconcile places it back as-is.
+    let desired: Vec<(String, String, OverlaySpec)> = crate::relocation::effective_overlays_from_app(app);
+    reconcile_with(app, desired);
+}
+
+/// `reconcile`, given an already-computed effective overlay list. autohide's poller
+/// computes `effective_overlays_from_app` once per tick for its own change-detection
+/// and passes that result straight through, rather than this function recomputing it a
+/// second time.
+pub(crate) fn reconcile_with(app: &AppHandle, desired: Vec<(String, String, OverlaySpec)>) {
     // Logged, not silent: a skipped reconcile used to look identical to "there was
     // nothing to do", which cost a full debugging session on 2026-08-08.
     //
     // Checked here rather than trusting effective_overlays_from_app's own poison
     // fallback: that fallback is an empty Vec, which down below reads as "nothing
     // wanted" and would close every live overlay - the opposite of this skip-and-log.
+    // Applies equally to the `desired` passed in by the poller above, which comes from
+    // that same fallback-prone call.
     if let Err(e) = app.state::<SettingsState>().0.lock() {
         log::error!("overlay reconcile skipped, settings lock poisoned: {e}");
         return;
     }
-    // Relocation-aware: an overlay whose stored monitor is fullscreen-covered lands
-    // on the same target monitor the strip on that lane moves to (relocation.rs),
-    // clamped into that monitor's real work area. The spec saved in settings never
-    // changes, so once nothing covers it the next reconcile places it back as-is.
-    let desired: Vec<(String, String, OverlaySpec)> = crate::relocation::effective_overlays_from_app(app);
     log::info!("overlay reconcile: {} wanted", desired.len());
     // label_for(instance_id), not widget_id: two placements of one widget kind
     // must become two distinct windows.

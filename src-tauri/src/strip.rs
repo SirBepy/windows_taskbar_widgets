@@ -172,8 +172,16 @@ pub fn reconcile(app: &AppHandle) {
     // fullscreen app can have its widgets relocated onto another monitor's strip,
     // and that destination needs a window built even if its own saved lane is empty.
     let widgets = crate::relocation::effective_from_app(app);
+    reconcile_with(app, &widgets);
+}
+
+/// `reconcile`, given an already-computed effective layout. autohide's poller computes
+/// `effective_from_app` once per tick for its own change-detection and passes that
+/// result straight through, rather than this function recomputing the same settings
+/// lock plus `available_monitors()`/`primary_monitor()` reads a second time.
+pub(crate) fn reconcile_with(app: &AppHandle, widgets: &MonitorWidgets) {
     let live = live_monitors(app);
-    let wanted = wanted_strip_labels(&widgets, &live);
+    let wanted = wanted_strip_labels(widgets, &live);
     // Logged only on change: reconcile runs inside autohide's 250ms tick, so an
     // unconditional line here writes ~4/sec and grows app.log unbounded under
     // KeepAll rotation - measured live on 2026-08-12 at 121 of 128 lines.

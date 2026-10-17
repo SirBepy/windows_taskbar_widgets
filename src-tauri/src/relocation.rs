@@ -94,9 +94,10 @@ pub(crate) fn primary_monitor_device(app: &AppHandle) -> String {
 }
 
 /// Each connected monitor's real work area in CSS px, keyed by device name - the unit
-/// `clamp_to_monitor` expects, same conversion `monitor_swap::swap_monitors` already
-/// does at click time. A monitor with no name is skipped; nothing can target it.
-fn connected_work_areas(app: &AppHandle) -> HashMap<String, (f64, f64)> {
+/// `clamp_to_monitor` expects. `monitor_swap::swap_monitors` reuses this at click time
+/// instead of its own inline per-monitor computation. A monitor with no name is
+/// skipped; nothing can target it.
+pub(crate) fn connected_work_areas(app: &AppHandle) -> HashMap<String, (f64, f64)> {
     app.available_monitors()
         .map(|monitors| {
             monitors
@@ -110,6 +111,24 @@ fn connected_work_areas(app: &AppHandle) -> HashMap<String, (f64, f64)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// `connected_monitor_devices` and `connected_work_areas` together, from one
+/// `available_monitors()` read - `effective_overlays_from_app` needs both every poll
+/// tick, and the two standalone helpers above would otherwise cost two Win32
+/// enumeration passes per tick instead of one.
+fn connected_devices_and_work_areas(app: &AppHandle) -> (Vec<String>, HashMap<String, (f64, f64)>) {
+    let Ok(monitors) = app.available_monitors() else { return (Vec::new(), HashMap::new()) };
+    let mut devices = Vec::new();
+    let mut work_areas = HashMap::new();
+    for m in &monitors {
+        let Some(name) = m.name().cloned() else { continue };
+        let scale = m.scale_factor();
+        let wa = m.work_area();
+        work_areas.insert(name.clone(), (wa.size.width as f64 / scale, wa.size.height as f64 / scale));
+        devices.push(name);
+    }
+    (devices, work_areas)
 }
 
 pub(crate) fn effective_from_app(app: &AppHandle) -> MonitorWidgets {
@@ -194,10 +213,9 @@ pub(crate) fn effective_overlays_from_app(app: &AppHandle) -> Vec<(InstanceId, S
             return Vec::new();
         }
     };
-    let connected = connected_monitor_devices(app);
+    let (connected, work_areas) = connected_devices_and_work_areas(app);
     let primary = primary_monitor_device(app);
     let covered = crate::autohide::covered_devices();
-    let work_areas = connected_work_areas(app);
     effective_overlays(&overlays, &covered, &connected, &primary, enabled, &work_areas)
 }
 
