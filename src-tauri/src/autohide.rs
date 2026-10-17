@@ -264,6 +264,33 @@ unsafe extern "system" fn on_foreground_event(
     }
 }
 
+/// Pulled out of `foreground_fullscreen` so the decision is a plain value comparison a
+/// test can drive without mocking Win32. Own-process windows (a strip, the flyout, an
+/// overlay, Settings) never count: clicking a tile makes that strip itself the
+/// foreground window, and without this guard `SHQueryUserNotificationState`'s
+/// busy/presentation bits (which can be set while any fullscreen or busy state exists
+/// anywhere, not just under the foreground window) made that strip read as "fullscreen
+/// on its own monitor", hiding it; Windows then handed activation to the other
+/// monitor's strip, which read as fullscreen in turn, and the two strips hid each other
+/// back and forth until the user focused a different app.
+fn is_fullscreen_state(
+    class: &str,
+    owner_pid: u32,
+    own_pid: u32,
+    presentation: bool,
+    covers_monitor: bool,
+) -> bool {
+    // Progman/WorkerW (desktop) spans the whole monitor same as real fullscreen;
+    // never treat the bare desktop as a reason to hide the strip.
+    if matches!(class, "Progman" | "WorkerW") {
+        return false;
+    }
+    if owner_pid == own_pid {
+        return false;
+    }
+    presentation || covers_monitor
+}
+
 /// SHQueryUserNotificationState catches D3D/presentation/busy fullscreen; it misses
 /// some borderless fullscreen, so fall back to foreground-window-covers-monitor. Both
 /// branches need the foreground window's monitor to attribute which strip should hide,
@@ -271,24 +298,28 @@ unsafe extern "system" fn on_foreground_event(
 #[cfg(target_os = "windows")]
 fn foreground_fullscreen() -> Option<String> {
     use windows_sys::Win32::Graphics::Gdi::MONITOR_DEFAULTTONULL;
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
     use windows_sys::Win32::UI::Shell::{
         SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE,
         QUNS_RUNNING_D3D_FULL_SCREEN,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId,
+    };
 
     unsafe {
         let fg = GetForegroundWindow();
         if fg.is_null() {
             return None;
         }
-        // Progman/WorkerW (desktop) spans the whole monitor same as real fullscreen;
-        // never treat the bare desktop as a reason to hide the strip.
         let mut class = [0u16; 256];
         let len = GetClassNameW(fg, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
-        if matches!(String::from_utf16_lossy(&class[..len]).as_str(), "Progman" | "WorkerW") {
-            return None;
-        }
+        let class_name = String::from_utf16_lossy(&class[..len]);
+
+        let mut owner_pid = 0u32;
+        GetWindowThreadProcessId(fg, &mut owner_pid);
+        let own_pid = GetCurrentProcessId();
+
         let wm = crate::taskbar::window_and_monitor_rect(fg, MONITOR_DEFAULTTONULL)?;
 
         let mut state = 0;
@@ -299,7 +330,8 @@ fn foreground_fullscreen() -> Option<String> {
             && wm.window.right >= wm.monitor.right
             && wm.window.bottom >= wm.monitor.bottom;
 
-        (presentation || covers_monitor).then_some(wm.device_name)
+        is_fullscreen_state(&class_name, owner_pid, own_pid, presentation, covers_monitor)
+            .then_some(wm.device_name)
     }
 }
 
@@ -360,5 +392,36 @@ mod tests {
         // hwnd 0 makes IsWindowVisible fail closed inside taskbar_hidden_for.
         let taskbars = [taskbar("A")];
         assert!(strip_should_hide(Some("A"), &taskbars, true, None, false));
+    }
+
+    // Reproduces the strip ping-pong: clicking a tile makes the strip itself the
+    // foreground window, and SHQueryUserNotificationState's busy/presentation bits can
+    // be set from unrelated system state, not just from that window. Without the
+    // own-pid guard this reads as "fullscreen", the strip hides, and the other
+    // monitor's strip takes the activation next and hides in turn.
+    #[test]
+    fn own_process_foreground_is_never_fullscreen_even_under_presentation_state() {
+        assert!(!is_fullscreen_state("StripWindowClass", 1234, 1234, true, true));
+    }
+
+    #[test]
+    fn foreign_process_foreground_under_presentation_state_is_fullscreen() {
+        assert!(is_fullscreen_state("ForeignWindowClass", 5555, 1234, true, false));
+    }
+
+    #[test]
+    fn foreign_process_foreground_covering_monitor_is_fullscreen() {
+        assert!(is_fullscreen_state("ForeignWindowClass", 5555, 1234, false, true));
+    }
+
+    #[test]
+    fn foreign_process_foreground_with_neither_signal_is_not_fullscreen() {
+        assert!(!is_fullscreen_state("ForeignWindowClass", 5555, 1234, false, false));
+    }
+
+    #[test]
+    fn desktop_class_is_excluded_even_for_a_foreign_pid_under_presentation_state() {
+        assert!(!is_fullscreen_state("Progman", 5555, 1234, true, true));
+        assert!(!is_fullscreen_state("WorkerW", 5555, 1234, true, true));
     }
 }
