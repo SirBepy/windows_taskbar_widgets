@@ -25,7 +25,8 @@
         "resizable": false,
         "maximizable": false,
         "shadow": false,
-        "visible": false
+        "visible": false,
+        "focus": false
       },
       {
         "label": "flyout",

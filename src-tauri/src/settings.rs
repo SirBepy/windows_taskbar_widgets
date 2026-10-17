@@ -54,6 +54,11 @@ pub struct Settings {
     // Fullscreen still hides the strip in both modes; this only gates the taskbar check
     // in autohide.rs's strip_should_hide().
     pub follow_taskbar: bool,
+    // true: a monitor covered by a fullscreen app has its strip widgets moved onto the
+    // other monitor's strip (appended after that strip's own widgets) for the duration,
+    // and moved back once the fullscreen app goes away. Runtime-only: never written to
+    // monitor_widgets. See relocation::effective_lanes.
+    pub move_on_fullscreen: bool,
     // Opt-in only: excludes strip+flyout from screen capture, but also from the
     // user's own screenshots, so it must never default true.
     pub hide_from_capture: bool,
@@ -93,6 +98,7 @@ impl Default for Settings {
             stats_poll_seconds: 2,
             opacity: 100,
             follow_taskbar: true,
+            move_on_fullscreen: true,
             hide_from_capture: false,
             taskbar_monitor: String::new(),
             widget_config: HashMap::new(),
@@ -316,6 +322,20 @@ mod tests {
         );
 
         assert!(s.is_widget_active("cpu"));
+    }
+
+    // A settings.json written before move_on_fullscreen existed must still load with
+    // the feature on, same contract as widget_placement's own migration-free field.
+    #[test]
+    fn settings_without_move_on_fullscreen_loads_it_as_true() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let json = r#"{"left_margin":44,"enabled_widgets":["cpu","ram"],"dividers_migrated":true}"#;
+        std::fs::write(&path, json).unwrap();
+
+        let loaded = load(&path);
+
+        assert!(loaded.move_on_fullscreen);
     }
 
     #[test]

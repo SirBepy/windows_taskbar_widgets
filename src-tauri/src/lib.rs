@@ -8,6 +8,7 @@ mod monitor_swap;
 mod monitor_widgets;
 mod overlay;
 mod pending_queue;
+mod relocation;
 mod settings;
 mod settings_migrations;
 mod spotify_smtc;
@@ -313,6 +314,7 @@ pub fn run() {
             overlay::save_overlay_geometry,
             overlay::monitor_at_point,
             strip::strip_monitor_key,
+            relocation::get_effective_monitor_widgets,
             system_stats::get_system_stats,
             system_stats::get_top_processes,
             conductor_data::get_conductor_usage,

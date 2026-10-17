@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::taskbar::DetectedTaskbar;
 
@@ -38,17 +38,14 @@ pub fn set_user_forced_visible(forced: bool) {
 }
 
 /// Sorted so callers can compare snapshots by equality rather than set semantics.
-/// No in-tree caller yet (a follow-up moves a covered monitor's widgets to the
-/// uncovered one); kept public now so that builder can rely on it rather than adding
-/// its own COVERED mirror.
+/// `relocation::effective_from_app` reads this to decide which monitors' widgets
+/// move onto another monitor's strip.
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
 pub(crate) fn covered_devices() -> Vec<String> {
     COVERED.lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 #[cfg(not(target_os = "windows"))]
-#[allow(dead_code)]
 pub(crate) fn covered_devices() -> Vec<String> {
     Vec::new()
 }
@@ -63,6 +60,11 @@ pub fn spawn_poller(app: AppHandle) {
     std::thread::spawn(move || {
         let mut prev_covered = covered_monitor_devices();
         store_covered(&prev_covered);
+        // One poller thread, so a plain local beats a static: it tracks the effective
+        // layout (settings' monitor_widgets plus any fullscreen relocation) this same
+        // loop last emitted "widgets-changed" for, so that event fires on a real layout
+        // change only, never once per 250ms tick.
+        let mut prev_effective = crate::relocation::effective_from_app(&app);
         loop {
             std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
             // Tracked even while USER_HIDDEN, so a stale flip doesn't fire the
@@ -73,6 +75,14 @@ pub fn spawn_poller(app: AppHandle) {
             }
             store_covered(&covered);
             prev_covered = covered.clone();
+            // Recomputed every tick (cheap map compare) since a relocation-relevant
+            // change isn't only the covered set: move_on_fullscreen can flip from a
+            // save_settings call this thread never otherwise observes.
+            let effective = crate::relocation::effective_from_app(&app);
+            if effective != prev_effective {
+                let _ = app.emit("widgets-changed", ());
+                prev_effective = effective;
+            }
             crate::strip::reconcile(&app);
             if USER_HIDDEN.load(Ordering::SeqCst) {
                 continue;
@@ -107,6 +117,13 @@ fn run_tick(app: &AppHandle, covered: &[String]) {
     // pinned unconditionally to its own monitor via StripState.
     let primary_device = crate::taskbar::select_taskbar(&taskbars, &taskbar_monitor)
         .map(|t| t.device_name.clone());
+    // Effective (post-relocation) layout, so a strip whose own lane reads empty here
+    // - emptied in Settings, or just relocated away - hides even though it isn't
+    // docked-taskbar-hidden or fullscreen-covered. `monitor_key_for_label` resolves by
+    // OS-primary identity, same convention `strip_monitor_key` uses for the frontend.
+    let effective = crate::relocation::effective_from_app(app);
+    let effective_keys: Vec<String> = effective.0.keys().cloned().collect();
+    let os_primary = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
 
     #[cfg(target_os = "windows")]
     let mut hwnds: Vec<isize> = Vec::new();
@@ -122,7 +139,10 @@ fn run_tick(app: &AppHandle, covered: &[String]) {
         } else {
             app.state::<crate::strip::StripState>().0.lock().ok().and_then(|m| m.get(label.as_str()).cloned())
         };
-        let hide_needed = strip_should_hide(device.as_deref(), &taskbars, follow_taskbar, covered, forced_visible);
+        let monitor_key = crate::strip::monitor_key_for_label(&effective_keys, os_primary.as_deref(), &label);
+        let empty_lane = crate::relocation::lane_is_present_and_empty(&effective, &monitor_key);
+        let hide_needed =
+            empty_lane || strip_should_hide(device.as_deref(), &taskbars, follow_taskbar, covered, forced_visible);
         let visible = win.is_visible().unwrap_or(true);
         if hide_needed && visible {
             let _ = win.hide();
