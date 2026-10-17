@@ -240,9 +240,14 @@ describe("withEffectiveMonitorWidgets", () => {
   } as unknown as Settings;
 
   it("substitutes the effective map for monitor_widgets", () => {
-    const effective = { "": [], DISPLAY2: [si("gpu"), si("cpu")] };
+    // Real relocation shape (relocation.rs's fold_primary_sentinel): "" is removed
+    // outright, not emptied, and the primary's own lane lives under its real device
+    // name - the strip must look it up by that name, never by "".
+    const effective = { DISPLAY1: [], DISPLAY2: [si("gpu"), si("cpu")] };
+    const merged = withEffectiveMonitorWidgets(settings, effective);
 
-    expect(withEffectiveMonitorWidgets(settings, effective)?.monitor_widgets).toEqual(effective);
+    expect(merged?.monitor_widgets).toEqual(effective);
+    expect(instancesForMonitor(["cpu", "gpu"], merged, "DISPLAY1")).toEqual([]);
   });
 
   it("falls back to the persisted settings when no effective map was fetched", () => {
