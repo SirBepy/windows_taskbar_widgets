@@ -5,7 +5,9 @@
 //! lane and the live covered-monitor snapshot whenever either changes (see
 //! `effective_from_app` and autohide's poller).
 
-use crate::monitor_widgets::MonitorWidgets;
+use crate::monitor_widgets::{InstanceId, MonitorWidgets};
+use crate::settings::OverlaySpec;
+use std::collections::HashMap;
 use tauri::{AppHandle, Manager};
 
 /// Picks which connected monitor a covered monitor's widgets land on: the primary if it
@@ -77,6 +79,39 @@ pub(crate) fn lane_is_present_and_empty(effective: &MonitorWidgets, monitor: &st
 /// connected-monitor set. A poisoned settings lock fails closed to an empty map; an
 /// unreadable monitor list fails closed to no connected monitors, which `effective_lanes`
 /// already treats as nothing to relocate.
+/// Live connected-monitor device names, shared by every `*_from_app` helper below so
+/// they all see the same set within one call.
+pub(crate) fn connected_monitor_devices(app: &AppHandle) -> Vec<String> {
+    app.available_monitors()
+        .map(|monitors| monitors.into_iter().filter_map(|m| m.name().cloned()).collect())
+        .unwrap_or_default()
+}
+
+/// Live OS-primary device name, or `""` if it can't be read - same fail-closed shape
+/// `pick_target` already treats as "no primary preference".
+pub(crate) fn primary_monitor_device(app: &AppHandle) -> String {
+    app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned()).unwrap_or_default()
+}
+
+/// Each connected monitor's real work area in CSS px, keyed by device name - the unit
+/// `clamp_to_monitor` expects, same conversion `monitor_swap::swap_monitors` already
+/// does at click time. A monitor with no name is skipped; nothing can target it.
+fn connected_work_areas(app: &AppHandle) -> HashMap<String, (f64, f64)> {
+    app.available_monitors()
+        .map(|monitors| {
+            monitors
+                .into_iter()
+                .filter_map(|m| {
+                    let name = m.name()?.clone();
+                    let scale = m.scale_factor();
+                    let wa = m.work_area();
+                    Some((name, (wa.size.width as f64 / scale, wa.size.height as f64 / scale)))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub(crate) fn effective_from_app(app: &AppHandle) -> MonitorWidgets {
     let (widgets, enabled) = match app.state::<crate::settings::SettingsState>().0.lock() {
         Ok(s) => (s.monitor_widgets.clone(), s.move_on_fullscreen),
@@ -85,13 +120,85 @@ pub(crate) fn effective_from_app(app: &AppHandle) -> MonitorWidgets {
             return MonitorWidgets::default();
         }
     };
-    let connected: Vec<String> = app
-        .available_monitors()
-        .map(|monitors| monitors.into_iter().filter_map(|m| m.name().cloned()).collect())
-        .unwrap_or_default();
-    let primary = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned()).unwrap_or_default();
+    let connected = connected_monitor_devices(app);
+    let primary = primary_monitor_device(app);
     let covered = crate::autohide::covered_devices();
     effective_lanes(&widgets, &covered, &connected, &primary, enabled)
+}
+
+/// `Some(target)` when `stored_monitor` (`""` reads as primary, same convention as
+/// `OverlaySpec::monitor`) is covered right now and `pick_target` has somewhere to
+/// send it; `None` covers every other case - not covered, disabled, nothing covered,
+/// or every monitor covered - in one return value, so a caller never has to re-derive
+/// "did this actually move" from a before/after spec diff.
+pub(crate) fn relocation_target_for_overlay(
+    stored_monitor: &str,
+    covered: &[String],
+    connected: &[String],
+    primary: &str,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled || covered.is_empty() {
+        return None;
+    }
+    let resolved = if stored_monitor.is_empty() { primary } else { stored_monitor };
+    if !covered.iter().any(|c| c == resolved) {
+        return None;
+    }
+    pick_target(covered, connected, primary)
+}
+
+/// The overlay-placement analogue of `effective_lanes`. Unlike strip lanes, overlays
+/// never merge into each other's list, so each one transforms independently: a
+/// covered overlay is re-pointed to `relocation_target_for_overlay`'s pick (the same
+/// monitor the strip on that lane lands on) and clamped into that monitor's real work
+/// area via `monitor_swap::clamp_to_monitor`, using the overlay's own stored size.
+/// Everything else - uncovered, disabled, both-covered, no entry in `work_areas` -
+/// passes through unchanged, byte for byte.
+pub(crate) fn effective_overlays(
+    overlays: &[(InstanceId, String, OverlaySpec)],
+    covered: &[String],
+    connected: &[String],
+    primary: &str,
+    enabled: bool,
+    work_areas: &HashMap<String, (f64, f64)>,
+) -> Vec<(InstanceId, String, OverlaySpec)> {
+    overlays
+        .iter()
+        .map(|(id, widget_id, spec)| {
+            match relocation_target_for_overlay(&spec.monitor, covered, connected, primary, enabled) {
+                None => (id.clone(), widget_id.clone(), spec.clone()),
+                Some(target) => {
+                    let mut moved = spec.clone();
+                    moved.monitor = target.clone();
+                    if let Some(&(w, h)) = work_areas.get(&target) {
+                        moved = crate::monitor_swap::clamp_to_monitor(&moved, w, h);
+                    }
+                    (id.clone(), widget_id.clone(), moved)
+                }
+            }
+        })
+        .collect()
+}
+
+/// Builds the effective overlay placement list from live app state, mirroring
+/// `effective_from_app` for strip lanes. Nothing here is written back to settings -
+/// the saved spec still reflects the overlay's real home, which is why the next call
+/// after the covered set clears restores it verbatim with no extra "move it back"
+/// code path.
+pub(crate) fn effective_overlays_from_app(app: &AppHandle) -> Vec<(InstanceId, String, OverlaySpec)> {
+    let (overlays, enabled) = match app.state::<crate::settings::SettingsState>().0.lock() {
+        Ok(s) => (s.overlays(), s.move_on_fullscreen),
+        Err(e) => {
+            log::error!("effective_overlays_from_app: settings lock poisoned: {e}");
+            return Vec::new();
+        }
+    };
+    let connected = connected_monitor_devices(app);
+    let primary = primary_monitor_device(app);
+    let covered = crate::autohide::covered_devices();
+    let work_areas = connected_work_areas(app);
+    effective_overlays(&overlays, &covered, &connected, &primary, enabled, &work_areas)
 }
 
 /// The frontend's handle onto the effective layout: same shape as
@@ -239,5 +346,113 @@ mod tests {
     fn lane_is_present_and_empty_false_when_it_has_instances() {
         let w = MonitorWidgets(HashMap::from([("A".to_string(), vec![instance("cpu#1", "cpu")])]));
         assert!(!lane_is_present_and_empty(&w, "A"));
+    }
+
+    fn overlay_entry(id: &str, monitor: &str, x: f64, y: f64) -> (InstanceId, String, OverlaySpec) {
+        (id.to_string(), "cpu".to_string(), OverlaySpec { monitor: monitor.to_string(), x, y, ..Default::default() })
+    }
+
+    fn monitor_of(effective: &[(InstanceId, String, OverlaySpec)], id: &str) -> String {
+        effective.iter().find(|(i, ..)| i == id).unwrap().2.monitor.clone()
+    }
+
+    #[test]
+    fn relocation_target_for_overlay_is_none_when_not_covered() {
+        assert_eq!(
+            relocation_target_for_overlay("A", &["B".to_string()], &["A".to_string(), "B".to_string()], "A", true),
+            None
+        );
+    }
+
+    #[test]
+    fn relocation_target_for_overlay_is_none_when_disabled() {
+        assert_eq!(
+            relocation_target_for_overlay("A", &["A".to_string()], &["A".to_string(), "B".to_string()], "A", false),
+            None
+        );
+    }
+
+    #[test]
+    fn relocation_target_for_overlay_resolves_the_primary_sentinel() {
+        assert_eq!(
+            relocation_target_for_overlay("", &["A".to_string()], &["A".to_string(), "B".to_string()], "A", true),
+            Some("B".to_string())
+        );
+    }
+
+    #[test]
+    fn relocation_target_for_overlay_is_none_when_every_monitor_covered() {
+        let covered = vec!["A".to_string(), "B".to_string()];
+        assert_eq!(relocation_target_for_overlay("A", &covered, &covered, "A", true), None);
+    }
+
+    #[test]
+    fn effective_overlays_moves_and_clamps_a_covered_overlay() {
+        let overlays = vec![overlay_entry("cpu#1", "A", 2000.0, 100.0)];
+        let work_areas = HashMap::from([("B".to_string(), (1920.0, 1080.0))]);
+        let effective = effective_overlays(
+            &overlays,
+            &["A".to_string()],
+            &["A".to_string(), "B".to_string()],
+            "A",
+            true,
+            &work_areas,
+        );
+        assert_eq!(monitor_of(&effective, "cpu#1"), "B");
+        let spec = &effective[0].2;
+        assert!(spec.x + crate::overlay::FALLBACK_W <= 1920.0, "x={} not clamped into 1920", spec.x);
+    }
+
+    #[test]
+    fn effective_overlays_leaves_an_uncovered_overlay_unchanged() {
+        let overlays = vec![overlay_entry("cpu#1", "B", 10.0, 10.0)];
+        let work_areas = HashMap::new();
+        let effective = effective_overlays(
+            &overlays,
+            &["A".to_string()],
+            &["A".to_string(), "B".to_string()],
+            "A",
+            true,
+            &work_areas,
+        );
+        assert_eq!(effective, overlays);
+    }
+
+    #[test]
+    fn effective_overlays_leaves_overlays_unchanged_when_every_monitor_covered() {
+        let overlays = vec![overlay_entry("cpu#1", "A", 10.0, 10.0)];
+        let covered = vec!["A".to_string(), "B".to_string()];
+        let effective = effective_overlays(&overlays, &covered, &covered, "A", true, &HashMap::new());
+        assert_eq!(effective, overlays);
+    }
+
+    #[test]
+    fn effective_overlays_leaves_overlays_unchanged_when_disabled() {
+        let overlays = vec![overlay_entry("cpu#1", "A", 10.0, 10.0)];
+        let work_areas = HashMap::from([("B".to_string(), (1920.0, 1080.0))]);
+        let effective = effective_overlays(
+            &overlays,
+            &["A".to_string()],
+            &["A".to_string(), "B".to_string()],
+            "A",
+            false,
+            &work_areas,
+        );
+        assert_eq!(effective, overlays);
+    }
+
+    #[test]
+    fn effective_overlays_moves_the_primary_sentinel_overlay_when_primary_is_covered() {
+        let overlays = vec![overlay_entry("cpu#1", "", 10.0, 10.0)];
+        let work_areas = HashMap::from([("B".to_string(), (1920.0, 1080.0))]);
+        let effective = effective_overlays(
+            &overlays,
+            &["A".to_string()],
+            &["A".to_string(), "B".to_string()],
+            "A",
+            true,
+            &work_areas,
+        );
+        assert_eq!(monitor_of(&effective, "cpu#1"), "B");
     }
 }

@@ -117,13 +117,19 @@ fn apply_geometry(app: &AppHandle, win: &tauri::WebviewWindow, spec: &OverlaySpe
 pub fn reconcile(app: &AppHandle) {
     // Logged, not silent: a skipped reconcile used to look identical to "there was
     // nothing to do", which cost a full debugging session on 2026-08-08.
-    let desired: Vec<(String, String, OverlaySpec)> = match app.state::<SettingsState>().0.lock() {
-        Ok(s) => s.overlays(),
-        Err(e) => {
-            log::error!("overlay reconcile skipped, settings lock poisoned: {e}");
-            return;
-        }
-    };
+    //
+    // Checked here rather than trusting effective_overlays_from_app's own poison
+    // fallback: that fallback is an empty Vec, which down below reads as "nothing
+    // wanted" and would close every live overlay - the opposite of this skip-and-log.
+    if let Err(e) = app.state::<SettingsState>().0.lock() {
+        log::error!("overlay reconcile skipped, settings lock poisoned: {e}");
+        return;
+    }
+    // Relocation-aware: an overlay whose stored monitor is fullscreen-covered lands
+    // on the same target monitor the strip on that lane moves to (relocation.rs),
+    // clamped into that monitor's real work area. The spec saved in settings never
+    // changes, so once nothing covers it the next reconcile places it back as-is.
+    let desired: Vec<(String, String, OverlaySpec)> = crate::relocation::effective_overlays_from_app(app);
     log::info!("overlay reconcile: {} wanted", desired.len());
     // label_for(instance_id), not widget_id: two placements of one widget kind
     // must become two distinct windows.
@@ -210,6 +216,13 @@ pub fn overlay_widget_id(window: tauri::Window, state: tauri::State<OverlayState
 
 /// Persists a drag or resize WITHOUT emitting widgets-changed: the window is already
 /// where the user put it, and a re-render mid-drag would fight them.
+///
+/// `monitor`/`x`/`y` here are the window's REAL current position (read by the
+/// frontend via `monitor_at_point`), which while the overlay is relocated is the
+/// target monitor, not its saved home. Storing that under the id would overwrite the
+/// saved spot with target-monitor coordinates, so a drag or resize mid-relocation
+/// keeps the saved monitor/x/y and only applies the new size - monitor-independent,
+/// since w/h are CSS px of the widget itself, not a position on any one screen.
 #[tauri::command]
 pub fn save_overlay_geometry(
     app: AppHandle,
@@ -223,14 +236,27 @@ pub fn save_overlay_geometry(
     let mut settings = {
         let state = app.state::<SettingsState>();
         let mut s = state.0.lock().map_err(|e| e.to_string())?;
-        let opacity = match s.widget_placement.get(&id) {
-            Some(Placement::Overlay(prev)) => prev.opacity,
+        let prev = match s.widget_placement.get(&id) {
+            Some(Placement::Overlay(prev)) => Some(prev.clone()),
             _ => None,
         };
-        s.widget_placement.insert(
-            id,
-            Placement::Overlay(OverlaySpec { monitor, x, y, w: Some(w), h: Some(h), opacity }),
-        );
+        let relocated = prev.as_ref().is_some_and(|p| {
+            crate::relocation::relocation_target_for_overlay(
+                &p.monitor,
+                &crate::autohide::covered_devices(),
+                &crate::relocation::connected_monitor_devices(&app),
+                &crate::relocation::primary_monitor_device(&app),
+                s.move_on_fullscreen,
+            )
+            .is_some()
+        });
+        let opacity = prev.as_ref().and_then(|p| p.opacity);
+        let spec = if relocated {
+            OverlaySpec { w: Some(w), h: Some(h), opacity, ..prev.unwrap() }
+        } else {
+            OverlaySpec { monitor, x, y, w: Some(w), h: Some(h), opacity }
+        };
+        s.widget_placement.insert(id, Placement::Overlay(spec));
         s.clone()
     };
     crate::settings::persist(&app, &mut settings)
