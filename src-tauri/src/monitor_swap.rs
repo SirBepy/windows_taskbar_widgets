@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// `strip::monitor_key_for_label` already applies when both could serve one window -
 /// so "" is treated as a stale leftover from before the lanes UI ever wrote a concrete
 /// key for that monitor, never as a second lane to merge in.
-fn fold_primary_sentinel(widgets: &mut MonitorWidgets, primary_device: &str) {
+pub(crate) fn fold_primary_sentinel(widgets: &mut MonitorWidgets, primary_device: &str) {
     if primary_device.is_empty() {
         return;
     }

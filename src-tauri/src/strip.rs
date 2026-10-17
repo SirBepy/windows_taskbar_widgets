@@ -44,6 +44,9 @@ pub fn build(app: &AppHandle, device_name: &str, label: &str) -> tauri::Result<(
         .maximizable(false)
         .shadow(false)
         .visible(false)
+        // tao's ShowWindow uses SW_SHOW (activating) on a window not built unfocused,
+        // so a relocation-created strip would otherwise steal focus the moment it shows.
+        .focused(false)
         .build()?;
     if let Ok(mut map) = app.state::<StripState>().0.lock() {
         map.insert(label.to_string(), device_name.to_string());
@@ -156,13 +159,10 @@ fn live_monitors(app: &AppHandle) -> Vec<(String, bool)> {
 /// the close loop already excludes it by construction; the explicit check below is
 /// belt-and-braces since closing the static `strip` window would break single-instance.
 pub fn reconcile(app: &AppHandle) {
-    let widgets = match app.state::<SettingsState>().0.lock() {
-        Ok(s) => s.monitor_widgets.clone(),
-        Err(e) => {
-            log::error!("strip reconcile skipped, settings lock poisoned: {e}");
-            return;
-        }
-    };
+    // The effective layout, not the raw settings lane: a monitor covered by a
+    // fullscreen app can have its widgets relocated onto another monitor's strip,
+    // and that destination needs a window built even if its own saved lane is empty.
+    let widgets = crate::relocation::effective_from_app(app);
     let live = live_monitors(app);
     let wanted = wanted_strip_labels(&widgets, &live);
     // Logged only on change: reconcile runs inside autohide's 250ms tick, so an
