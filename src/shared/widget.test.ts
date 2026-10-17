@@ -208,15 +208,22 @@ describe("instancesForMonitor", () => {
     expect(instancesForMonitor(["cpu", "ram"], dup, "")).toEqual([si("cpu", 1), si("ram"), si("cpu", 2)]);
   });
 
-  // A blank strip is a worse failure than a duplicated one, so every unresolved
-  // case falls through to the full list rather than to nothing.
-  it("returns the full list when the key is unresolved, absent or empty", () => {
+  // A blank strip is a worse failure than a duplicated one, so a truly unresolved
+  // lane (null key, or a key no settings write has ever touched) falls through to
+  // the full list rather than to nothing.
+  it("returns the full list when the key is unresolved, absent, or settings are null", () => {
     expect(instancesForMonitor(["cpu", "gpu"], settings, null)).toEqual([si("cpu"), si("gpu")]);
     expect(instancesForMonitor(["cpu", "gpu"], settings, "DISPLAY9")).toEqual([si("cpu"), si("gpu")]);
+    expect(instancesForMonitor(["cpu", "gpu"], null, "")).toEqual([si("cpu"), si("gpu")]);
+  });
+
+  // apply_lanes (tile_actions.rs) writes an explicit [] for every monitor the lanes
+  // UI knows about: a present-but-empty lane is the user deliberately emptying that
+  // monitor, not an unresolved key, so it must render nothing rather than fall back.
+  it("returns nothing when the key is present but its lane was emptied", () => {
     expect(
       instancesForMonitor(["cpu", "gpu"], { monitor_widgets: { "": [] } } as unknown as Settings, ""),
-    ).toEqual([si("cpu"), si("gpu")]);
-    expect(instancesForMonitor(["cpu", "gpu"], null, "")).toEqual([si("cpu"), si("gpu")]);
+    ).toEqual([]);
   });
 
   // The todo-60 regression: an id adopted into enabled_widgets but not yet backed by
