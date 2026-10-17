@@ -4,6 +4,7 @@ mod bridge_conductor;
 mod bridge_pomodoro;
 mod conductor_data;
 mod flyout;
+mod fullscreen_coverage;
 mod monitor_swap;
 mod monitor_widgets;
 mod overlay;
