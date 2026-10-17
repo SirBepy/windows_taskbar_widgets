@@ -1,6 +1,5 @@
 use crate::monitor_widgets::MonitorWidgets;
 use crate::pending_queue::{prune_pending, Labeled, PendingQueue};
-use crate::settings::SettingsState;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -96,20 +95,30 @@ pub fn monitor_key_for_label(keys: &[String], primary_name: Option<&str>, label:
         .unwrap_or_default()
 }
 
+/// Pure: `monitor_key_for_label` resolved against `effective`'s own keys, not the
+/// persisted `monitor_widgets` keys. Relocation's `fold_primary_sentinel` can remove
+/// the `""` primary key and move its lane under the primary's real device name, so a
+/// label must resolve against whichever key set it is about to index - the same
+/// effective key set `autohide::run_tick` already resolves against - or it can land on
+/// a key (`""`) that no longer exists in the map it indexes.
+pub fn resolve_strip_monitor_key(
+    effective: &MonitorWidgets,
+    primary_name: Option<&str>,
+    label: &str,
+) -> String {
+    let keys: Vec<String> = effective.0.keys().cloned().collect();
+    monitor_key_for_label(&keys, primary_name, label)
+}
+
 /// The calling strip window's `monitor_widgets` key, so the page can render only the
-/// instances placed on its own monitor. See `monitor_key_for_label` for the resolution
-/// rule; unmatched (a window whose monitor unplugged) falls back to "", today's key.
+/// instances placed on its own monitor. See `resolve_strip_monitor_key` for the
+/// resolution rule; unmatched (a window whose monitor unplugged) falls back to "",
+/// today's key.
 #[tauri::command]
 pub fn strip_monitor_key(app: AppHandle, window: tauri::Window) -> String {
-    let keys: Vec<String> = match app.state::<SettingsState>().0.lock() {
-        Ok(s) => s.monitor_widgets.0.keys().cloned().collect(),
-        Err(e) => {
-            log::error!("strip_monitor_key: settings lock poisoned: {e}");
-            return String::new();
-        }
-    };
+    let effective = crate::relocation::effective_from_app(&app);
     let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
-    monitor_key_for_label(&keys, primary_name.as_deref(), window.label())
+    resolve_strip_monitor_key(&effective, primary_name.as_deref(), window.label())
 }
 
 /// Wanted strip labels for the live monitor set. The primary always maps to the bare
@@ -350,6 +359,37 @@ mod tests {
     fn monitor_key_for_label_no_match_returns_empty() {
         let keys = vec![r"\\.\DISPLAY2".to_string()];
         assert_eq!(monitor_key_for_label(&keys, Some(r"\\.\DISPLAY1"), "strip-DISPLAY3"), "");
+    }
+
+    #[test]
+    fn resolve_strip_monitor_key_resolves_against_the_effective_map_not_the_persisted_one() {
+        // Pre-lanes-UI install: the primary's own lane still lives under "". DISPLAY2 is
+        // fullscreen-covered, so effective_lanes folds "" into DISPLAY1 and appends
+        // DISPLAY2's instances after it - the "" key is gone from the effective map by
+        // the time the primary strip asks for its key.
+        let persisted = MonitorWidgets(HashMap::from([
+            ("".to_string(), vec![StripInstance { instance_id: "a#1".to_string(), widget_id: "a".to_string() }]),
+            (
+                r"\\.\DISPLAY2".to_string(),
+                vec![StripInstance { instance_id: "b#1".to_string(), widget_id: "b".to_string() }],
+            ),
+        ]));
+        let effective = crate::relocation::effective_lanes(
+            &persisted,
+            &[r"\\.\DISPLAY2".to_string()],
+            &[r"\\.\DISPLAY1".to_string(), r"\\.\DISPLAY2".to_string()],
+            r"\\.\DISPLAY1",
+            true,
+        );
+
+        let key = resolve_strip_monitor_key(&effective, Some(r"\\.\DISPLAY1"), PRIMARY_LABEL);
+
+        // The resolved key must be a real key in the map it's about to index - "" would
+        // silently miss and fall through to instancesForMonitor's absent-key whole-list
+        // fallback (every widget rendered on the primary strip).
+        assert!(effective.0.contains_key(&key), "resolved key {key:?} is not in the effective map");
+        let widget_ids: Vec<String> = effective.instances_for(&key).iter().map(|si| si.widget_id.clone()).collect();
+        assert_eq!(widget_ids, vec!["a".to_string(), "b".to_string()]);
     }
 
     fn pending(label: &str) -> Pending {
