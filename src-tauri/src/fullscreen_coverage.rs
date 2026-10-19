@@ -1,5 +1,9 @@
 use std::sync::Mutex;
 
+use crate::excluded_processes::is_excluded_process_exe;
+#[cfg(target_os = "windows")]
+use crate::excluded_processes::process_exe_name;
+
 // Latest poll tick's covered-monitor snapshot, for other modules that need to know
 // which monitor a fullscreen window is covering right now (e.g. moving a covered
 // monitor's widgets to the uncovered one). Written once per tick by `spawn_poller`.
@@ -58,57 +62,6 @@ fn is_fullscreen_state(
         return false;
     }
     presentation || covers_monitor
-}
-
-/// Known Windows shell/system surfaces that routinely present a full-monitor rect
-/// during ordinary use (opening Start, invoking Search, Xbox Game Bar, or Windows'
-/// own screen-recording entry points) without being a real fullscreen app. Before
-/// this exclusion, opening the Start menu or starting a screen recording got
-/// misdetected as fullscreen-covering that monitor and triggered `move_on_fullscreen`,
-/// relocating that monitor's strip onto the other one for no reason (reported
-/// 2026-10-19).
-fn is_excluded_process_exe(exe_name: &str) -> bool {
-    const EXCLUDED: &[&str] = &[
-        "StartMenuExperienceHost.exe",
-        "SearchHost.exe",
-        "ShellExperienceHost.exe",
-        "ShellHost.exe",
-        "TextInputHost.exe",
-        "GameBar.exe",
-        "GameBarFTServer.exe",
-        "GameBarPresenceWriter.exe",
-        "SnippingTool.exe",
-        "ScreenClippingHost.exe",
-    ];
-    EXCLUDED.iter().any(|n| n.eq_ignore_ascii_case(exe_name))
-}
-
-/// Resolves a pid's own exe file name (no path) so `is_excluded_process_exe` can
-/// recognize it. OpenProcess+Query is 3 syscalls, so callers gate this behind the
-/// rare conditions (a covering rect, a presentation-state hit) rather than running
-/// it for every window.
-#[cfg(target_os = "windows")]
-fn process_exe_name(pid: u32) -> Option<String> {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle.is_null() {
-            return None;
-        }
-        let mut buf = [0u16; 512];
-        let mut len = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) != 0;
-        CloseHandle(handle);
-        if !ok {
-            return None;
-        }
-        let path = String::from_utf16_lossy(&buf[..len as usize]);
-        path.rsplit(['\\', '/']).next().map(str::to_string)
-    }
 }
 
 /// SHQueryUserNotificationState catches D3D/presentation/busy fullscreen; it misses
