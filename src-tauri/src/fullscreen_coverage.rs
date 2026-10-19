@@ -44,6 +44,7 @@ fn is_fullscreen_state(
     own_pid: u32,
     presentation: bool,
     covers_monitor: bool,
+    exe_name: Option<&str>,
 ) -> bool {
     // Progman/WorkerW (desktop) spans the whole monitor same as real fullscreen;
     // never treat the bare desktop as a reason to hide the strip.
@@ -53,7 +54,61 @@ fn is_fullscreen_state(
     if owner_pid == own_pid {
         return false;
     }
+    if exe_name.is_some_and(is_excluded_process_exe) {
+        return false;
+    }
     presentation || covers_monitor
+}
+
+/// Known Windows shell/system surfaces that routinely present a full-monitor rect
+/// during ordinary use (opening Start, invoking Search, Xbox Game Bar, or Windows'
+/// own screen-recording entry points) without being a real fullscreen app. Before
+/// this exclusion, opening the Start menu or starting a screen recording got
+/// misdetected as fullscreen-covering that monitor and triggered `move_on_fullscreen`,
+/// relocating that monitor's strip onto the other one for no reason (reported
+/// 2026-10-19).
+fn is_excluded_process_exe(exe_name: &str) -> bool {
+    const EXCLUDED: &[&str] = &[
+        "StartMenuExperienceHost.exe",
+        "SearchHost.exe",
+        "ShellExperienceHost.exe",
+        "ShellHost.exe",
+        "TextInputHost.exe",
+        "GameBar.exe",
+        "GameBarFTServer.exe",
+        "GameBarPresenceWriter.exe",
+        "SnippingTool.exe",
+        "ScreenClippingHost.exe",
+    ];
+    EXCLUDED.iter().any(|n| n.eq_ignore_ascii_case(exe_name))
+}
+
+/// Resolves a pid's own exe file name (no path) so `is_excluded_process_exe` can
+/// recognize it. OpenProcess+Query is 3 syscalls, so callers gate this behind the
+/// rare conditions (a covering rect, a presentation-state hit) rather than running
+/// it for every window.
+#[cfg(target_os = "windows")]
+fn process_exe_name(pid: u32) -> Option<String> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(handle);
+        if !ok {
+            return None;
+        }
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        path.rsplit(['\\', '/']).next().map(str::to_string)
+    }
 }
 
 /// SHQueryUserNotificationState catches D3D/presentation/busy fullscreen; it misses
@@ -98,8 +153,17 @@ fn foreground_presentation_device() -> Option<String> {
             && wm.window.right >= wm.monitor.right
             && wm.window.bottom >= wm.monitor.bottom;
 
-        is_fullscreen_state(&class_name, owner_pid, own_pid, presentation, covers_monitor)
-            .then_some(wm.device_name)
+        let exe_name = (presentation || covers_monitor).then(|| process_exe_name(owner_pid)).flatten();
+
+        is_fullscreen_state(
+            &class_name,
+            owner_pid,
+            own_pid,
+            presentation,
+            covers_monitor,
+            exe_name.as_deref(),
+        )
+        .then_some(wm.device_name)
     }
 }
 
@@ -113,6 +177,7 @@ fn foreground_presentation_device() -> Option<String> {
 /// render nothing - a cloaked window sits on another virtual desktop or is a suspended
 /// UWP frame - so neither can actually cover a monitor despite matching the geometry
 /// and class checks below.
+#[allow(clippy::too_many_arguments)]
 fn is_covering_window(
     class: &str,
     owner_pid: u32,
@@ -121,6 +186,7 @@ fn is_covering_window(
     cloaked: bool,
     covers_monitor: bool,
     ex_style: u32,
+    exe_name: Option<&str>,
 ) -> bool {
     if iconic || cloaked {
         return false;
@@ -138,6 +204,9 @@ fn is_covering_window(
     // overlay instead (GeForce/ShadowPlay capture overlay, Steam/Discord in-game
     // overlay, a screen dimmer) that would otherwise hide the strip forever.
     if ex_style & (WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW) != 0 {
+        return false;
+    }
+    if exe_name.is_some_and(is_excluded_process_exe) {
         return false;
     }
     covers_monitor
@@ -232,7 +301,20 @@ unsafe extern "system" fn enum_coverage_proc(
     // one more Win32 call per candidate, not per every top-level window.
     let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
 
-    if is_covering_window(&class_name, owner_pid, ctx.own_pid, iconic, cloaked, covers_monitor, ex_style) {
+    // Rarer still, and 3 syscalls (OpenProcess+Query+CloseHandle): only resolved for
+    // a window that actually covers its monitor, where it decides a real exclusion.
+    let exe_name = covers_monitor.then(|| process_exe_name(owner_pid)).flatten();
+
+    if is_covering_window(
+        &class_name,
+        owner_pid,
+        ctx.own_pid,
+        iconic,
+        cloaked,
+        covers_monitor,
+        ex_style,
+        exe_name.as_deref(),
+    ) {
         ctx.covered.insert(wm.device_name);
     }
     1
@@ -277,28 +359,56 @@ mod tests {
     // monitor's strip takes the activation next and hides in turn.
     #[test]
     fn own_process_foreground_is_never_fullscreen_even_under_presentation_state() {
-        assert!(!is_fullscreen_state("StripWindowClass", 1234, 1234, true, true));
+        assert!(!is_fullscreen_state("StripWindowClass", 1234, 1234, true, true, None));
     }
 
     #[test]
     fn foreign_process_foreground_under_presentation_state_is_fullscreen() {
-        assert!(is_fullscreen_state("ForeignWindowClass", 5555, 1234, true, false));
+        assert!(is_fullscreen_state("ForeignWindowClass", 5555, 1234, true, false, None));
     }
 
     #[test]
     fn foreign_process_foreground_covering_monitor_is_fullscreen() {
-        assert!(is_fullscreen_state("ForeignWindowClass", 5555, 1234, false, true));
+        assert!(is_fullscreen_state("ForeignWindowClass", 5555, 1234, false, true, None));
     }
 
     #[test]
     fn foreign_process_foreground_with_neither_signal_is_not_fullscreen() {
-        assert!(!is_fullscreen_state("ForeignWindowClass", 5555, 1234, false, false));
+        assert!(!is_fullscreen_state("ForeignWindowClass", 5555, 1234, false, false, None));
     }
 
     #[test]
     fn desktop_class_is_excluded_even_for_a_foreign_pid_under_presentation_state() {
-        assert!(!is_fullscreen_state("Progman", 5555, 1234, true, true));
-        assert!(!is_fullscreen_state("WorkerW", 5555, 1234, true, true));
+        assert!(!is_fullscreen_state("Progman", 5555, 1234, true, true, None));
+        assert!(!is_fullscreen_state("WorkerW", 5555, 1234, true, true, None));
+    }
+
+    // The Start menu / Search / Game Bar / the built-in screen recorder can present a
+    // full-monitor rect and presentation-state bits during ordinary use; neither
+    // should ever relocate a strip (reported 2026-10-19).
+
+    #[test]
+    fn start_menu_foreground_under_presentation_state_is_not_fullscreen() {
+        assert!(!is_fullscreen_state(
+            "Windows.UI.Core.CoreWindow",
+            5555,
+            1234,
+            true,
+            true,
+            Some("StartMenuExperienceHost.exe"),
+        ));
+    }
+
+    #[test]
+    fn excluded_exe_name_match_is_case_insensitive() {
+        assert!(!is_fullscreen_state(
+            "Windows.UI.Core.CoreWindow",
+            5555,
+            1234,
+            true,
+            true,
+            Some("startmenuexperiencehost.EXE"),
+        ));
     }
 
     // is_covering_window: the per-window filter behind covered_monitor_devices(). A
@@ -308,35 +418,80 @@ mod tests {
 
     #[test]
     fn foreign_covering_window_counts() {
-        assert!(is_covering_window("ForeignWindowClass", 5555, 1234, false, false, true, 0));
+        assert!(is_covering_window("ForeignWindowClass", 5555, 1234, false, false, true, 0, None));
     }
 
     #[test]
     fn non_covering_window_does_not_count() {
-        assert!(!is_covering_window("ForeignWindowClass", 5555, 1234, false, false, false, 0));
+        assert!(!is_covering_window("ForeignWindowClass", 5555, 1234, false, false, false, 0, None));
     }
 
     #[test]
     fn cloaked_window_is_excluded_even_when_covering() {
         // A cloaked window sits on another virtual desktop or is a suspended UWP
         // frame: invisible in practice despite IsWindowVisible and a covering rect.
-        assert!(!is_covering_window("ForeignWindowClass", 5555, 1234, false, true, true, 0));
+        assert!(!is_covering_window("ForeignWindowClass", 5555, 1234, false, true, true, 0, None));
     }
 
     #[test]
     fn iconic_window_is_excluded_even_when_covering() {
-        assert!(!is_covering_window("ForeignWindowClass", 5555, 1234, true, false, true, 0));
+        assert!(!is_covering_window("ForeignWindowClass", 5555, 1234, true, false, true, 0, None));
     }
 
     #[test]
     fn own_process_window_is_excluded_even_when_covering() {
-        assert!(!is_covering_window("StripWindowClass", 1234, 1234, false, false, true, 0));
+        assert!(!is_covering_window("StripWindowClass", 1234, 1234, false, false, true, 0, None));
     }
 
     #[test]
     fn desktop_class_is_excluded_even_when_covering() {
-        assert!(!is_covering_window("Progman", 5555, 1234, false, false, true, 0));
-        assert!(!is_covering_window("WorkerW", 5555, 1234, false, false, true, 0));
+        assert!(!is_covering_window("Progman", 5555, 1234, false, false, true, 0, None));
+        assert!(!is_covering_window("WorkerW", 5555, 1234, false, false, true, 0, None));
+    }
+
+    // Start menu / Search / Game Bar / the built-in screen recorder: see the
+    // is_fullscreen_state exclusion tests above for the reported symptom.
+
+    #[test]
+    fn start_menu_covering_window_does_not_count() {
+        assert!(!is_covering_window(
+            "Windows.UI.Core.CoreWindow",
+            5555,
+            1234,
+            false,
+            false,
+            true,
+            0,
+            Some("StartMenuExperienceHost.exe"),
+        ));
+    }
+
+    #[test]
+    fn screen_recorder_covering_window_does_not_count() {
+        assert!(!is_covering_window(
+            "ApplicationFrameWindow",
+            5555,
+            1234,
+            false,
+            false,
+            true,
+            0,
+            Some("ScreenClippingHost.exe"),
+        ));
+    }
+
+    #[test]
+    fn unrelated_exe_covering_window_still_counts() {
+        assert!(is_covering_window(
+            "ForeignWindowClass",
+            5555,
+            1234,
+            false,
+            false,
+            true,
+            0,
+            Some("SomeGame.exe"),
+        ));
     }
 
     // Real fullscreen apps never carry WS_EX_TRANSPARENT (click-through) or
@@ -355,6 +510,7 @@ mod tests {
             false,
             true,
             WS_EX_TRANSPARENT,
+            None,
         ));
     }
 
@@ -368,6 +524,7 @@ mod tests {
             false,
             true,
             WS_EX_TOOLWINDOW,
+            None,
         ));
     }
 }
