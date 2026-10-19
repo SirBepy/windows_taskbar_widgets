@@ -1,10 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::monitor_widgets::MonitorWidgets;
 use crate::taskbar::DetectedTaskbar;
+use crate::topmost::raise_topmost;
 
 // toggle_all_strips is the sole writer; true means the user explicitly hid the strips,
 // so the poll below must skip entirely rather than auto-show them back.
@@ -18,11 +18,6 @@ static USER_FORCED_VISIBLE: AtomicBool = AtomicBool::new(false);
 // 250ms rather than 500: this is also how fast the strip reappears when an
 // auto-hide taskbar slides back in, and the taskbar's own animation is ~200ms.
 const POLL_INTERVAL_MS: u64 = 250;
-
-// The WinEventHook callback is extern "system" and can't capture state, so this is
-// how every live strip's hwnd reaches it. Refreshed every poll tick.
-#[cfg(target_os = "windows")]
-static STRIP_HWNDS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
 // Re-exported so existing callers (relocation.rs, overlay.rs) keep working at
 // `crate::autohide::covered_devices()` even though the fullscreen-coverage detector
@@ -43,7 +38,7 @@ pub fn set_user_forced_visible(forced: bool) {
 /// no WM_DISPLAYCHANGE listener in this codebase, so blind re-polling is the mechanism.
 pub fn spawn_poller(app: AppHandle) {
     #[cfg(target_os = "windows")]
-    spawn_foreground_watcher();
+    crate::topmost::spawn_foreground_watcher();
     std::thread::spawn(move || {
         let mut prev_covered = crate::fullscreen_coverage::covered_monitor_devices();
         crate::fullscreen_coverage::store_covered(&prev_covered);
@@ -155,9 +150,7 @@ fn run_tick(app: &AppHandle, covered: &[String], effective: &MonitorWidgets) {
     }
 
     #[cfg(target_os = "windows")]
-    if let Ok(mut guard) = STRIP_HWNDS.lock() {
-        *guard = hwnds;
-    }
+    crate::topmost::store_strip_hwnds(hwnds);
 }
 
 /// Whether the strip pinned to `device` should hide this tick: docked-taskbar state
@@ -203,113 +196,6 @@ fn reassert_position(app: &AppHandle, win: &tauri::WebviewWindow) {
     let scale = win.scale_factor().unwrap_or(1.0);
     let css_width = win.outer_size().map(|s| s.width as f64 / scale).unwrap_or(320.0);
     let _ = crate::taskbar::position_strip(app, &window, css_width);
-}
-
-/// Explorer restarts and fullscreen transitions silently demote a topmost window,
-/// and Windows never restores it; re-asserting is the only way back up.
-#[cfg(target_os = "windows")]
-fn raise_topmost(win: &tauri::WebviewWindow) {
-    let Ok(hwnd) = win.hwnd() else { return };
-    raise_topmost_hwnd(hwnd.0 as isize);
-}
-
-#[cfg(not(target_os = "windows"))]
-fn raise_topmost(_win: &tauri::WebviewWindow) {}
-
-#[cfg(target_os = "windows")]
-fn raise_topmost_hwnd(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    };
-    if still_in_topmost_band(hwnd) {
-        return;
-    }
-    unsafe {
-        SetWindowPos(
-            hwnd as _,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-        );
-    }
-}
-
-/// WS_EX_TOPMOST never clears on a same-band reorder, so it can't alone tell whether
-/// the strip fell out of the band. Re-assert when a visible window above it is either
-/// non-topmost (band lost) or the taskbar (Shell_TrayWnd is topmost too, and it
-/// winning the last assert is exactly the "strip is under the taskbar" bug).
-#[cfg(target_os = "windows")]
-fn still_in_topmost_band(hwnd: isize) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindow, GetWindowLongW, IsWindowVisible, GWL_EXSTYLE, GW_HWNDPREV, WS_EX_TOPMOST,
-    };
-    unsafe {
-        let mut cur = hwnd as _;
-        loop {
-            cur = GetWindow(cur, GW_HWNDPREV);
-            if cur.is_null() {
-                return true;
-            }
-            if IsWindowVisible(cur) == 0 {
-                continue;
-            }
-            let non_topmost = GetWindowLongW(cur, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST == 0;
-            if non_topmost || crate::taskbar::is_taskbar_class(cur) {
-                return false;
-            }
-        }
-    }
-}
-
-/// Must run its own message loop: WINEVENT_OUTOFCONTEXT delivers callbacks through
-/// this thread's queue, and a hook with no pump never fires.
-#[cfg(target_os = "windows")]
-fn spawn_foreground_watcher() {
-    use windows_sys::Win32::UI::Accessibility::SetWinEventHook;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, GetMessageW, TranslateMessage, EVENT_SYSTEM_FOREGROUND,
-        WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, MSG,
-    };
-    std::thread::spawn(|| unsafe {
-        SetWinEventHook(
-            EVENT_SYSTEM_FOREGROUND,
-            EVENT_SYSTEM_FOREGROUND,
-            std::ptr::null_mut(),
-            Some(on_foreground_event),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
-        );
-        let mut msg: MSG = std::mem::zeroed();
-        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    });
-}
-
-#[cfg(target_os = "windows")]
-unsafe extern "system" fn on_foreground_event(
-    _hook: windows_sys::Win32::UI::Accessibility::HWINEVENTHOOK,
-    _event: u32,
-    hwnd: windows_sys::Win32::Foundation::HWND,
-    _id_object: i32,
-    _id_child: i32,
-    _thread_id: u32,
-    _time: u32,
-) {
-    if hwnd.is_null() || !crate::taskbar::is_taskbar_class(hwnd) {
-        return;
-    }
-    // Runs on the hook's own message-pump thread: it must never block, so a
-    // contended lock just skips this tick's re-raise rather than stalling the OS callback.
-    let Ok(hwnds) = STRIP_HWNDS.try_lock() else { return };
-    for &strip in hwnds.iter() {
-        raise_topmost_hwnd(strip);
-    }
 }
 
 #[cfg(test)]

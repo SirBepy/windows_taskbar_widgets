@@ -19,6 +19,7 @@ mod taskbar;
 mod thread_watchdog;
 mod tile_actions;
 mod tile_menu;
+mod topmost;
 mod window_park;
 
 use settings::{Settings, SettingsState};
