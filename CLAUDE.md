@@ -80,3 +80,17 @@ So any window this app hides rather than destroys must also be moved off every m
 window that sets its own position on every open (the flyout) needs only the `park` half. Strip
 windows fall under that same half: `autohide.rs`'s `run_tick` parks after `hide`, and its `show`
 branch re-derives the position through `reassert_position` rather than unparking.
+
+**Not every hidden full-screen-rect window is this hazard.** `/window-probe` found two windows this
+app's process tree owns that it never positions at all: `tray_icon_app` (Tauri's tray helper) and a
+WebView2-internal `Chrome_WidgetWin_0`, both hidden, both landing at a `CW_USEDEFAULT` cascade
+position (never the same twice between launches) rather than a position this app's own code set.
+`tray_icon_app` sets `WS_EX_TRANSPARENT`, so it is click-through by construction and was ruled out
+immediately. `Chrome_WidgetWin_0` carries neither `WS_EX_TRANSPARENT` nor `WS_EX_TOOLWINDOW`, so it
+could not be ruled out the same way - it matched the hazard shape closely enough that the question
+stayed open from 2026-09-05 (todo 78) through 2026-10-19. Settled 2026-10-19: Joe confirmed he has
+not seen a dead/unresponsive click zone on his primary monitor in a long time, which is the evidence
+this hazard class needs - a window that actually swallows clicks over a visible desktop region gets
+noticed. Recorded here instead of parking it in code, since neither window is created or positioned
+by this app's own code (no `hide`/`show` site to attach a `park` call to), and there is nothing left
+to verify.
