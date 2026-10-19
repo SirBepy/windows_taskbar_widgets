@@ -15,22 +15,40 @@ const WARN_THRESHOLD: u32 = 500;
 // it started; 3000 catches it within seconds of onset while staying far above any
 // plausible legitimate peak (e.g. several overlay windows open at once).
 const EMERGENCY_THRESHOLD: u32 = 3000;
+// Below WARN_THRESHOLD nothing was ever logged, so a multi-day run left no timeline to
+// look back on if a leak did start - only a sudden jump straight to the warn line, with
+// no baseline showing when growth began or how fast. 10 ticks at POLL_SECS=30 is 5
+// minutes: frequent enough to catch the shape of a slow leak, far below log-volume
+// concern at this app's Info-level KeepAll rotation (~50 bytes/line here).
+const BASELINE_LOG_EVERY_N_TICKS: u32 = 10;
 
 pub fn spawn() {
-    std::thread::spawn(|| loop {
-        std::thread::sleep(Duration::from_secs(POLL_SECS));
-        let Some(count) = own_thread_count() else { continue };
-        if count >= EMERGENCY_THRESHOLD {
-            log::error!(
-                "thread_watchdog: {count} threads, at or past the emergency ceiling \
-                 ({EMERGENCY_THRESHOLD}) - exiting now rather than letting a runaway \
-                 leak keep growing. See todo 79."
-            );
-            std::process::exit(1);
-        } else if count >= WARN_THRESHOLD {
-            log::warn!("thread_watchdog: {count} threads (>= warn threshold {WARN_THRESHOLD})");
+    std::thread::spawn(|| {
+        let mut tick: u32 = 0;
+        loop {
+            std::thread::sleep(Duration::from_secs(POLL_SECS));
+            tick += 1;
+            let Some(count) = own_thread_count() else { continue };
+            if count >= EMERGENCY_THRESHOLD {
+                log::error!(
+                    "thread_watchdog: {count} threads, at or past the emergency ceiling \
+                     ({EMERGENCY_THRESHOLD}) - exiting now rather than letting a runaway \
+                     leak keep growing. See todo 79."
+                );
+                std::process::exit(1);
+            } else if count >= WARN_THRESHOLD {
+                log::warn!("thread_watchdog: {count} threads (>= warn threshold {WARN_THRESHOLD})");
+            } else if should_log_baseline(tick, BASELINE_LOG_EVERY_N_TICKS) {
+                log::info!("thread_watchdog: {count} threads (baseline)");
+            }
         }
     });
+}
+
+/// True on every Nth tick, pulled out of the poll loop so a test can drive the cadence
+/// decision without sleeping real time.
+fn should_log_baseline(tick: u32, every_n_ticks: u32) -> bool {
+    every_n_ticks != 0 && tick.is_multiple_of(every_n_ticks)
 }
 
 #[cfg(target_os = "windows")]
@@ -68,4 +86,22 @@ fn own_thread_count() -> Option<u32> {
 #[cfg(not(target_os = "windows"))]
 fn own_thread_count() -> Option<u32> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fires_only_on_every_nth_tick() {
+        assert!(!should_log_baseline(1, 10));
+        assert!(!should_log_baseline(9, 10));
+        assert!(should_log_baseline(10, 10));
+        assert!(should_log_baseline(20, 10));
+    }
+
+    #[test]
+    fn zero_interval_never_fires() {
+        assert!(!should_log_baseline(10, 0));
+    }
 }
