@@ -8,7 +8,45 @@
 use crate::monitor_widgets::{InstanceId, MonitorWidgets};
 use crate::settings::OverlaySpec;
 use std::collections::HashMap;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
+
+/// Instance ids whose overlay was relocated as of the last `effective_overlays_from_app`
+/// call (i.e. the last reconcile tick). `save_overlay_geometry` consults this snapshot
+/// instead of recomputing "is this overlay covered right now" from live state at save
+/// time: a drag/resize that ends exactly as the covering fullscreen app closes would
+/// otherwise see an already-empty covered set and persist the relocated target-monitor
+/// position as the overlay's new home.
+static RELOCATED_OVERLAYS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Whether `id`'s overlay was relocated as of the last reconcile tick.
+pub(crate) fn is_overlay_relocated(id: &str) -> bool {
+    RELOCATED_OVERLAYS.lock().map(|g| g.iter().any(|s| s == id)).unwrap_or(false)
+}
+
+fn store_relocated_overlays(ids: Vec<InstanceId>) {
+    if let Ok(mut guard) = RELOCATED_OVERLAYS.lock() {
+        *guard = ids;
+    }
+}
+
+/// Pure: the subset of `overlays` whose stored monitor is currently relocated, per the
+/// same `relocation_target_for_overlay` decision `effective_overlays` uses to move them.
+pub(crate) fn relocated_overlay_ids(
+    overlays: &[(InstanceId, String, OverlaySpec)],
+    covered: &[String],
+    connected: &[String],
+    primary: &str,
+    enabled: bool,
+) -> Vec<InstanceId> {
+    overlays
+        .iter()
+        .filter(|(_, _, spec)| {
+            relocation_target_for_overlay(&spec.monitor, covered, connected, primary, enabled).is_some()
+        })
+        .map(|(id, _, _)| id.clone())
+        .collect()
+}
 
 /// Picks which connected monitor a covered monitor's widgets land on: the primary if it
 /// is connected and itself uncovered, else the first uncovered connected monitor in
@@ -204,6 +242,7 @@ pub(crate) fn effective_overlays_from_app(app: &AppHandle) -> Vec<(InstanceId, S
     let (connected, work_areas) = connected_devices_and_work_areas(app);
     let primary = primary_monitor_device(app);
     let covered = crate::autohide::covered_devices();
+    store_relocated_overlays(relocated_overlay_ids(&overlays, &covered, &connected, &primary, enabled));
     effective_overlays(&overlays, &covered, &connected, &primary, enabled, &work_areas)
 }
 
@@ -445,6 +484,37 @@ mod tests {
             &work_areas,
         );
         assert_eq!(effective, overlays);
+    }
+
+    #[test]
+    fn relocated_overlay_ids_includes_a_relocated_overlay_and_excludes_an_unrelocated_one() {
+        let overlays = vec![
+            overlay_entry("cpu#1", "A", 10.0, 10.0),
+            overlay_entry("ram#1", "B", 10.0, 10.0),
+        ];
+        let ids = relocated_overlay_ids(
+            &overlays,
+            &["A".to_string()],
+            &["A".to_string(), "B".to_string()],
+            "A",
+            true,
+        );
+        assert!(ids.contains(&"cpu#1".to_string()));
+        assert!(!ids.contains(&"ram#1".to_string()));
+    }
+
+    // Reproduces the overlay-rehoming bug directly: `is_overlay_relocated` must answer
+    // from the last-stored reconcile snapshot alone, never from a live covered-set
+    // recompute - a drag/resize ending exactly as the covering fullscreen app closes
+    // would otherwise see an already-empty covered set and let `save_overlay_geometry`
+    // persist the relocated target-monitor position as the overlay's new home. This
+    // test takes no `covered` argument at all, which is the fix: there is no live state
+    // left to race.
+    #[test]
+    fn is_overlay_relocated_reflects_the_last_stored_snapshot_not_any_live_state() {
+        store_relocated_overlays(vec!["cpu#1".to_string()]);
+        assert!(is_overlay_relocated("cpu#1"));
+        assert!(!is_overlay_relocated("ram#1"));
     }
 
     #[test]

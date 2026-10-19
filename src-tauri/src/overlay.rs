@@ -250,16 +250,11 @@ pub fn save_overlay_geometry(
             Some(Placement::Overlay(prev)) => Some(prev.clone()),
             _ => None,
         };
-        let relocated = prev.as_ref().is_some_and(|p| {
-            crate::relocation::relocation_target_for_overlay(
-                &p.monitor,
-                &crate::autohide::covered_devices(),
-                &crate::relocation::connected_monitor_devices(&app),
-                &crate::relocation::primary_monitor_device(&app),
-                s.move_on_fullscreen,
-            )
-            .is_some()
-        });
+        // Consults the last reconcile tick's snapshot, not live state: recomputing live
+        // here raced a drag/resize that ends exactly as the covering fullscreen app
+        // closes, seeing an already-empty covered set and persisting the relocated
+        // target-monitor position as the overlay's new home.
+        let relocated = prev.is_some() && crate::relocation::is_overlay_relocated(&id);
         let opacity = prev.as_ref().and_then(|p| p.opacity);
         let spec = if relocated {
             OverlaySpec { w: Some(w), h: Some(h), opacity, ..prev.unwrap() }
