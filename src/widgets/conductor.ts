@@ -131,7 +131,8 @@ function ringSvg(cx: number, r: number, w: number, pct: number, safePct: number 
   return svg`${seg(cx, r, w, 100, TRACK_COLOR, false)}${ringFill(cx, r, w, cur, safe, color)}`;
 }
 
-// Outer ring = 5h window, inner = 7d. a.colour tints the icon only: identity,
+// Outer ring = 5h window, inner = 7d; a plan with no 5h limit draws only the
+// weekly ring, outer. a.colour tints the icon only: identity,
 // never pace. No click handler here - refresh is wired once on the whole tile
 // (mountTile), not per-dial; see requestRefresh's comment.
 export function miniDial(a: AccountUsage) {
