@@ -24,7 +24,15 @@ struct WindowUsage {
 struct UsageSnapshot {
     captured_at: String,
     five_hour: WindowUsage,
+    // false = the plan has no 5h limit at all (not a 5h window sitting idle at
+    // 0%). Rows saved before conductor wrote this field read as limited.
+    #[serde(default = "default_true")]
+    five_hour_limited: bool,
     seven_day: WindowUsage,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Serialize)]
@@ -36,6 +44,7 @@ pub struct AccountUsage {
     pub captured_at: String,
     pub five_hour_pct: f64,
     pub five_hour_resets_at: Option<String>,
+    pub five_hour_limited: bool,
     pub seven_day_pct: f64,
     pub seven_day_resets_at: Option<String>,
 }
@@ -111,7 +120,38 @@ fn to_usage(id: &str, label: &str, colour: &str, icon: &str, snap: UsageSnapshot
         captured_at: snap.captured_at,
         five_hour_pct: snap.five_hour.utilization,
         five_hour_resets_at: none_if_empty(snap.five_hour.resets_at),
+        five_hour_limited: snap.five_hour_limited,
         seven_day_pct: snap.seven_day.utilization,
         seven_day_resets_at: none_if_empty(snap.seven_day.resets_at),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snap(raw: &str) -> UsageSnapshot {
+        serde_json::from_str(raw).unwrap()
+    }
+
+    #[test]
+    fn a_snapshot_flagged_without_a_five_hour_limit_maps_to_unlimited() {
+        let s = snap(r#"{
+            "captured_at": "2026-11-09T10:00:00Z",
+            "five_hour": { "utilization": 0.0, "resets_at": null },
+            "five_hour_limited": false,
+            "seven_day": { "utilization": 6.0, "resets_at": "2026-11-12T11:59:00Z" }
+        }"#);
+        assert!(!to_usage("a", "personal", "#fff", "user", s).five_hour_limited);
+    }
+
+    #[test]
+    fn a_snapshot_saved_before_the_flag_existed_reads_as_limited() {
+        let s = snap(r#"{
+            "captured_at": "2026-11-09T10:00:00Z",
+            "five_hour": { "utilization": 10.0, "resets_at": "2026-11-09T17:00:00Z" },
+            "seven_day": { "utilization": 1.0, "resets_at": "2026-11-12T11:00:00Z" }
+        }"#);
+        assert!(to_usage("a", "dane", "#fff", "rocket", s).five_hour_limited);
     }
 }

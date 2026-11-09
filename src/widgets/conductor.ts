@@ -11,6 +11,8 @@ interface AccountUsage {
   captured_at: string;
   five_hour_pct: number;
   five_hour_resets_at: string | null;
+  // false = the plan has no 5h limit, so only the weekly ring is drawn.
+  five_hour_limited: boolean;
   seven_day_pct: number;
   seven_day_resets_at: string | null;
 }
@@ -28,6 +30,8 @@ const LEGACY_ID = "legacy";
 interface LiveUsageSnapshot {
   captured_at: string;
   five_hour: { utilization: number; resets_at: string | null };
+  // Absent on snapshots from a conductor that predates the field: reads as limited.
+  five_hour_limited?: boolean;
   seven_day: { utilization: number; resets_at: string | null };
   account_id: string | null;
 }
@@ -36,7 +40,7 @@ const POLL_MS = 30_000;
 
 // Label/colour/icon come from the last DB poll; a snapshot for an unknown
 // account (no poll yet, or a brand-new account not in that snapshot) is dropped.
-function mergeLive(current: ConductorUsage | null, snap: LiveUsageSnapshot): ConductorUsage | null {
+export function mergeLive(current: ConductorUsage | null, snap: LiveUsageSnapshot): ConductorUsage | null {
   if (!current) return current;
   const targetId = snap.account_id ?? LEGACY_ID;
   let changed = false;
@@ -48,6 +52,7 @@ function mergeLive(current: ConductorUsage | null, snap: LiveUsageSnapshot): Con
       captured_at: snap.captured_at,
       five_hour_pct: snap.five_hour.utilization,
       five_hour_resets_at: snap.five_hour.resets_at,
+      five_hour_limited: snap.five_hour_limited !== false,
       seven_day_pct: snap.seven_day.utilization,
       seven_day_resets_at: snap.seven_day.resets_at,
     };
@@ -129,17 +134,26 @@ function ringSvg(cx: number, r: number, w: number, pct: number, safePct: number 
 // Outer ring = 5h window, inner = 7d. a.colour tints the icon only: identity,
 // never pace. No click handler here - refresh is wired once on the whole tile
 // (mountTile), not per-dial; see requestRefresh's comment.
-function miniDial(a: AccountUsage) {
+export function miniDial(a: AccountUsage) {
   const fiveHourFrac = elapsedFraction(a.five_hour_resets_at, FIVE_HOUR_MS);
   const sevenDayFrac = elapsedFraction(a.seven_day_resets_at, SEVEN_DAY_MS);
   const toSafePct = (f: number | null) => (f === null ? null : f * 100);
   const paceNote = (f: number | null) => (f === null ? "" : ` (safe pace ${(f * 100).toFixed(0)}%)`);
   const icon = a.icon || ICON_FALLBACK;
+  const weekly = `7d ${a.seven_day_pct.toFixed(0)}%${paceNote(sevenDayFrac)}`;
+  // A plan with no 5h limit draws one ring, the weekly one, on the outer track
+  // (same as the sibling usage-dial.ts), never a dead 0% session ring.
+  const rings = a.five_hour_limited
+    ? svg`${ringSvg(CENTER, OUTER_R, OUTER_W, a.five_hour_pct, toSafePct(fiveHourFrac))}
+      ${ringSvg(CENTER, INNER_R, INNER_W, a.seven_day_pct, toSafePct(sevenDayFrac))}`
+    : ringSvg(CENTER, OUTER_R, OUTER_W, a.seven_day_pct, toSafePct(sevenDayFrac));
+  const title = a.five_hour_limited
+    ? `${a.label}: 5h ${a.five_hour_pct.toFixed(0)}%${paceNote(fiveHourFrac)} · ${weekly} · click to refresh`
+    : `${a.label}: ${weekly} · click to refresh`;
   return svg`
     <svg class="dial" width="${DIAL_SIZE_PX}" height="${DIAL_SIZE_PX}" viewBox="0 0 ${VIEWBOX} ${VIEWBOX}">
-      <title>${a.label}: 5h ${a.five_hour_pct.toFixed(0)}%${paceNote(fiveHourFrac)} · 7d ${a.seven_day_pct.toFixed(0)}%${paceNote(sevenDayFrac)} · click to refresh</title>
-      ${ringSvg(CENTER, OUTER_R, OUTER_W, a.five_hour_pct, toSafePct(fiveHourFrac))}
-      ${ringSvg(CENTER, INNER_R, INNER_W, a.seven_day_pct, toSafePct(sevenDayFrac))}
+      <title>${title}</title>
+      ${rings}
       <foreignObject x="${CENTER - 9}" y="${CENTER - 9}" width="18" height="18">
         <div xmlns="http://www.w3.org/1999/xhtml" class="dial-icon" style="color:${a.colour}">
           <i class="ph ph-${icon}"></i>
@@ -189,7 +203,7 @@ function ringColumn(pct: number, resetsAt: string | null, windowMs: number, tool
   `;
 }
 
-function accountCard(a: AccountUsage) {
+export function accountCard(a: AccountUsage) {
   return html`
     <div class="acct-card" style="--acc:${a.colour}">
       <div class="acct-card-head">
@@ -197,7 +211,7 @@ function accountCard(a: AccountUsage) {
         ${a.label}
       </div>
       <div class="ring-row">
-        ${ringColumn(a.five_hour_pct, a.five_hour_resets_at, FIVE_HOUR_MS, "Session (5h)")}
+        ${a.five_hour_limited ? ringColumn(a.five_hour_pct, a.five_hour_resets_at, FIVE_HOUR_MS, "Session (5h)") : ""}
         ${ringColumn(a.seven_day_pct, a.seven_day_resets_at, SEVEN_DAY_MS, "Weekly (7d)")}
       </div>
     </div>
