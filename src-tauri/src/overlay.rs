@@ -212,7 +212,10 @@ pub fn drain_pending(app: &AppHandle) {
             continue;
         }
         log::info!("overlay {instance_id}: building {label}");
-        if let Err(e) = build(app, &widget_id, &label, &spec) {
+        let guard = crate::build_guard::BuildGuard::begin();
+        let result = build(app, &widget_id, &label, &spec);
+        drop(guard);
+        if let Err(e) = result {
             log::error!("overlay {label}: {e}");
         }
     }

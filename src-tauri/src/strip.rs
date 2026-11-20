@@ -255,8 +255,12 @@ pub fn drain_pending(app: &AppHandle) {
             continue;
         }
         log::info!("strip {device_name}: building {label}");
-        if let Err(e) = build(app, &device_name, &label) {
-            log::error!("strip {device_name}: {e}");
+        let guard = crate::build_guard::BuildGuard::begin();
+        let result = build(app, &device_name, &label);
+        drop(guard);
+        match result {
+            Ok(()) => log::info!("strip {device_name}: built {label}"),
+            Err(e) => log::error!("strip {device_name}: {e}"),
         }
     }
 }

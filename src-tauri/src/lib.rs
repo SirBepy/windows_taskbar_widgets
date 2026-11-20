@@ -2,6 +2,7 @@ mod autohide;
 mod autostart;
 mod bridge_conductor;
 mod bridge_pomodoro;
+mod build_guard;
 mod conductor_data;
 mod excluded_processes;
 mod flyout;
@@ -282,6 +283,7 @@ pub fn run() {
             bridge_pomodoro::spawn(handle.clone());
             spotify_smtc::spawn(handle.clone());
             thread_watchdog::spawn();
+            build_guard::spawn();
             if let Err(e) = build_tray(&handle) {
                 eprintln!("failed to build tray: {e}");
             }
