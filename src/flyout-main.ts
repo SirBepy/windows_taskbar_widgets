@@ -2,7 +2,7 @@ import "@phosphor-icons/web/regular";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { widgetById } from "./widgets/registry";
-import { createFlyoutController } from "./shared/flyout-mount";
+import { createFlyoutPanel, PanelShow } from "./shared/flyout-panel";
 import { reportErrors } from "./shared/report-errors";
 import { applyOpacity, Settings } from "./shared/widget";
 
@@ -17,24 +17,22 @@ listen("widgets-changed", refreshOpacity);
 // No native context/inspect menu anywhere in this app's webviews.
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
-const controller = createFlyoutController((id) => {
-  const root = document.getElementById("flyout")!;
-  // Fresh container per widget: lit-html caches its ChildPart on the render
-  // target, so reusing a wiped node renders into detached DOM (blank panel).
-  const mount = document.createElement("div");
-  mount.className = "flyout-content";
-  root.replaceChildren(mount);
-  return widgetById(id)?.mountFlyout?.(mount) ?? null;
+const panel = createFlyoutPanel({
+  panel: document.getElementById("flyout")!,
+  mountWidget: (id, root) => widgetById(id)?.mountFlyout?.(root) ?? null,
+  onHidden: () => invoke("flyout_hide_done").catch(() => {}),
 });
 
-listen<{ widget_id: string }>("flyout-show", (e) => controller.show(e.payload.widget_id));
+listen<PanelShow>("flyout-show", (e) => panel.show(e.payload));
 
-// Hiding the window does not pause this page, so unmounting here is the only
+// Hiding the window does not pause this page, so unmounting on hide is the only
 // thing that stops the widget's polling. See flyout-mount.ts.
-listen("flyout-hidden", () => controller.hide());
+listen("flyout-hide", () => panel.hide());
 
 // The open_flyout emit can beat this page's listener registration (first open
-// right after launch), so also pull the current id once on load.
-invoke<string | null>("get_current_flyout_widget")
-  .then((id) => controller.show(id))
+// right after launch), so also pull the current panel once on load.
+invoke<PanelShow | null>("get_current_flyout")
+  .then((p) => {
+    if (p) panel.show(p);
+  })
   .catch(() => {});

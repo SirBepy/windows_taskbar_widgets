@@ -45,6 +45,30 @@ body {
   overflow-y: auto;
 }
 
+/* The flyout window is a big transparent canvas; this is the one visible panel inside it.
+   Bottom-anchored 4px up (the inset .flyout-body's padding used to give), so a height change
+   reads as the panel growing upward. left/width/height are driven from flyout-panel.ts, which
+   is also why this is a class on top of #flyout: conductor.ts measures a bare #flyout off-screen
+   and must not pick up any of this positioning. */
+#flyout.flyout-panel {
+  position: absolute;
+  bottom: 4px;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+/* Sized inline to the panel's target dims. Overflow beyond a widget's declared max scrolls
+   here, never grows the window (CLAUDE.md's fixed-size rule). */
+#flyout.flyout-panel .fly-layer {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  overflow-y: auto;
+}
+
 /* Content layer, not #flyout: it sits on #flyout's solid background rather
    than the transparent window, so alpha here is safe (see #flyout above). */
 .flyout-content {

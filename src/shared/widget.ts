@@ -19,7 +19,8 @@ export interface TaskbarWidget {
   /** Fixed at declare-time, sized for max content; see CLAUDE.md's fixed-size rule. Omit for tile-only widgets. */
   flyout?: { widthCss: number; heightCss: number };
   /** Recomputed on every hover-open (e.g. account-count-dependent height), overriding `flyout` for that
-   * open only - the size still never changes while the flyout is already showing. Falls back to `flyout`. */
+   * open only - live data never resizes the flyout; only moving to another tile animates the panel to
+   * that widget's own size (see CLAUDE.md, "Flyout panel animation"). Falls back to `flyout`. */
   flyoutDims?(): { widthCss: number; heightCss: number };
   /** Default AND minimum size when placed as a floating overlay; the user may resize up from it. */
   overlay?: { widthCss: number; heightCss: number };

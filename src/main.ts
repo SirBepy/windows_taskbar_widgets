@@ -27,6 +27,10 @@ if (!import.meta.env.DEV) runAutoUpdateCheck();
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 const HOVER_OPEN_DELAY_MS = 250;
+const FLYOUT_SWITCH_DELAY_MS = 20;
+// Counts tile enters and leaves: an enter whose flyout_is_open answer arrives after the pointer
+// already left (or moved on) drops its timer instead of opening.
+let hoverToken = 0;
 
 let row: HTMLElement;
 let tileCleanups: (() => void)[] = [];
@@ -61,18 +65,32 @@ function reportStripWidth(row: HTMLElement): () => void {
 function wireFlyoutHover(tile: HTMLElement, widget: TaskbarWidget): () => void {
   if (!widget.flyout) return () => {};
   const onEnter = () => {
-    flyoutOpenTimer = window.setTimeout(() => {
-      const r = tile.getBoundingClientRect();
-      const dims = widget.flyoutDims?.() ?? widget.flyout!;
-      invoke("open_flyout", {
-        widgetId: widget.id,
-        anchorXCss: r.left + r.width / 2,
-        widthCss: dims.widthCss,
-        heightCss: dims.heightCss,
-      }).catch(() => {});
-    }, HOVER_OPEN_DELAY_MS);
+    const token = ++hoverToken;
+    // Already open means this hover is a switch between tiles: nearly instant, so the one
+    // panel follows the pointer. A cold open keeps the longer delay so a pass-through never opens it.
+    invoke<boolean>("flyout_is_open")
+      .catch(() => false)
+      .then((isOpen) => {
+        if (token !== hoverToken) return;
+        flyoutOpenTimer = window.setTimeout(
+          () => {
+            const r = tile.getBoundingClientRect();
+            const dims = widget.flyoutDims?.() ?? widget.flyout!;
+            invoke("open_flyout", {
+              widgetId: widget.id,
+              anchorXCss: r.left + r.width / 2,
+              widthCss: dims.widthCss,
+              heightCss: dims.heightCss,
+            }).catch(() => {});
+          },
+          isOpen ? FLYOUT_SWITCH_DELAY_MS : HOVER_OPEN_DELAY_MS,
+        );
+      });
   };
-  const onLeave = () => window.clearTimeout(flyoutOpenTimer);
+  const onLeave = () => {
+    hoverToken++;
+    window.clearTimeout(flyoutOpenTimer);
+  };
   tile.addEventListener("mouseenter", onEnter);
   tile.addEventListener("mouseleave", onLeave);
   return () => {

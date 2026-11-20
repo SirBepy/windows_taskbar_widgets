@@ -38,6 +38,18 @@ shrink once when the fullscreen app goes away. Chosen by Joe on 2026-10-17 ("app
 widgets"). It is a layout event, two resizes per fullscreen session, never a resize on a live value.
 Each tile inside keeps its own fixed size throughout.
 
+**Flyout panel animation** (`src/shared/flyout-panel.ts`, `src-tauri/src/flyout.rs`). The flyout is
+one transparent native window that spans the strip and never resizes while open; the visible
+`#flyout` panel inside it animates its own height, width and left in CSS (300 ms) and swaps its
+content (old rows fade out, new rows rise in). Chosen by Joe on 2026-11-20 after the old
+per-widget native resize felt "stuttery": "always the same one element that gets filled with
+content, and the content switches out, and its height gets animated". The invariant still holds in
+full: a live value never resizes it. Only a deliberate pointer move to another tile (or the close)
+changes the panel box, and each widget's final size is still its declared `flyout` / `flyoutDims()`.
+The window is click-through everywhere but the panel (`set_ignore_cursor_events`, toggled by
+`flyout.rs`'s 40 ms cursor poll), because a transparent window would otherwise swallow clicks over
+the desktop above the taskbar.
+
 **Per-open measured sizing** (conductor's `flyoutDims()`, `src/widgets/conductor.ts`) is the
 pattern for a widget whose max case has no natural cap (an account list, unlike a process list
 capped at "top N"). The size is still fixed once the flyout is open - it's recomputed once, at
