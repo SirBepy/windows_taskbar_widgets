@@ -1,21 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { FLYOUT_INSET_PX, panelBox, rowDelay, swapTimeline } from "./flyout-panel";
+import { FLYOUT_INSET_PX, panelBox, rowStart, swapTimeline } from "./flyout-panel";
 
-describe("rowDelay", () => {
+describe("rowStart", () => {
   const t = { riseDelay: 120 };
 
   it("staggers rows that arrive on time", () => {
-    expect(rowDelay(t, 0, 0)).toBe(120);
-    expect(rowDelay(t, 3, 0)).toBe(120 + 3 * 26);
+    expect(rowStart(t, null, 0)).toBe(120);
+    expect(rowStart(t, 120, 0)).toBe(146);
   });
 
-  // The regression: the top-processes block lands ~100 ms after mount and used to pop in at once.
-  it("gives a late row the next slot in the sequence, not zero", () => {
-    expect(rowDelay(t, 2, 100)).toBe(120 + 2 * 26 - 100);
+  // The regression: the rows land ~250 ms after mount, past the end of a mount-anchored
+  // stagger, so rows 1-5 all got delay 0 and rose in the same frame.
+  it("keeps a stagger between rows that all arrive after their slots", () => {
+    const first = rowStart(t, 120, 250);
+    const second = rowStart(t, first, 250);
+    const third = rowStart(t, second, 250);
+    expect([first, second, third]).toEqual([250, 276, 302]);
   });
 
-  it("never goes negative for a row that arrives after its slot", () => {
-    expect(rowDelay(t, 1, 900)).toBe(0);
+  it("never starts a row before it exists", () => {
+    expect(rowStart(t, 120, 900)).toBe(900);
   });
 });
 

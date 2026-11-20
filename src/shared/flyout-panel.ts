@@ -50,13 +50,18 @@ export function swapTimeline(durMs: number, hadOldContent: boolean) {
 }
 
 /**
- * Pure: when row `index` starts rising, given how long ago its layer mounted. A row that
- * arrives late (top processes come from an async call) takes the next slot in the same
- * sequence instead of the whole block popping in at once, but never waits longer than a
- * row that arrived on time would have.
+ * Pure: ms after mount at which a row starts rising. Rows queue one stagger behind the previous
+ * row, and never start before they exist: a block that lands after the first slots have passed
+ * (the data arrives ~250 ms after mount, past the end of an anchored-to-mount stagger) still
+ * rises row by row instead of every row starting in the same frame.
  */
-export function rowDelay(t: { riseDelay: number }, index: number, elapsedMs: number): number {
-  return Math.max(0, t.riseDelay + index * ROW_STAGGER_MS - elapsedMs);
+export function rowStart(
+  t: { riseDelay: number },
+  prevStart: number | null,
+  elapsedMs: number,
+): number {
+  const earliest = prevStart === null ? t.riseDelay : prevStart + ROW_STAGGER_MS;
+  return Math.max(earliest, elapsedMs);
 }
 
 /** How long after mount a newly added row still counts as part of the swap. */
@@ -112,20 +117,19 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       window.setTimeout(() => old.remove(), t.fadeOut + 60);
     }
     const mountedAt = performance.now();
-    let index = 0;
-    const rise = (row: HTMLElement) =>
-      row.animate(
+    let prevStart: number | null = null;
+    const rise = (row: HTMLElement) => {
+      const elapsed = performance.now() - mountedAt;
+      const start = rowStart(t, prevStart, elapsed);
+      prevStart = start;
+      return row.animate(
         [
           { opacity: 0, transform: `translateY(${ROW_RISE_PX}px)` },
           { opacity: 1, transform: "translateY(0)" },
         ],
-        {
-          duration: t.rise,
-          delay: rowDelay(t, index++, performance.now() - mountedAt),
-          easing: FLYOUT_EASE,
-          fill: "backwards",
-        },
+        { duration: t.rise, delay: start - elapsed, easing: FLYOUT_EASE, fill: "backwards" },
       );
+    };
     rows(next).forEach(rise);
     // Rows the widget adds after its first paint join the same sequence.
     const late = new MutationObserver((records) => {
