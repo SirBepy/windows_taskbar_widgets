@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { FLYOUT_INSET_PX, panelBox, swapTimeline } from "./flyout-panel";
+import { FLYOUT_INSET_PX, panelBox, rowDelay, swapTimeline } from "./flyout-panel";
+
+describe("rowDelay", () => {
+  const t = { riseDelay: 120 };
+
+  it("staggers rows that arrive on time", () => {
+    expect(rowDelay(t, 0, 0)).toBe(120);
+    expect(rowDelay(t, 3, 0)).toBe(120 + 3 * 26);
+  });
+
+  // The regression: the top-processes block lands ~100 ms after mount and used to pop in at once.
+  it("gives a late row the next slot in the sequence, not zero", () => {
+    expect(rowDelay(t, 2, 100)).toBe(120 + 2 * 26 - 100);
+  });
+
+  it("never goes negative for a row that arrives after its slot", () => {
+    expect(rowDelay(t, 1, 900)).toBe(0);
+  });
+});
 
 const show = { widget_id: "cpu", left_css: 100, width_css: 245, height_css: 270 };
 

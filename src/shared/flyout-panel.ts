@@ -49,6 +49,19 @@ export function swapTimeline(durMs: number, hadOldContent: boolean) {
   };
 }
 
+/**
+ * Pure: when row `index` starts rising, given how long ago its layer mounted. A row that
+ * arrives late (top processes come from an async call) takes the next slot in the same
+ * sequence instead of the whole block popping in at once, but never waits longer than a
+ * row that arrived on time would have.
+ */
+export function rowDelay(t: { riseDelay: number }, index: number, elapsedMs: number): number {
+  return Math.max(0, t.riseDelay + index * ROW_STAGGER_MS - elapsedMs);
+}
+
+/** How long after mount a newly added row still counts as part of the swap. */
+const LATE_ROW_WINDOW_MS = 1500;
+
 export interface FlyoutPanelDeps {
   panel: HTMLElement;
   mountWidget: (id: string, root: HTMLElement) => (() => void) | null;
@@ -98,15 +111,32 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       fade.onfinish = () => old.remove();
       window.setTimeout(() => old.remove(), t.fadeOut + 60);
     }
-    rows(next).forEach((row, i) =>
+    const mountedAt = performance.now();
+    let index = 0;
+    const rise = (row: HTMLElement) =>
       row.animate(
         [
           { opacity: 0, transform: `translateY(${ROW_RISE_PX}px)` },
           { opacity: 1, transform: "translateY(0)" },
         ],
-        { duration: t.rise, delay: t.riseDelay + i * ROW_STAGGER_MS, easing: FLYOUT_EASE, fill: "backwards" },
-      ),
-    );
+        {
+          duration: t.rise,
+          delay: rowDelay(t, index++, performance.now() - mountedAt),
+          easing: FLYOUT_EASE,
+          fill: "backwards",
+        },
+      );
+    rows(next).forEach(rise);
+    // Rows the widget adds after its first paint join the same sequence.
+    const late = new MutationObserver((records) => {
+      for (const r of records) {
+        r.addedNodes.forEach((n) => {
+          if (n instanceof HTMLElement) rise(n);
+        });
+      }
+    });
+    late.observe(next, { childList: true });
+    window.setTimeout(() => late.disconnect(), LATE_ROW_WINDOW_MS);
   }
 
   function transitions(on: boolean, glide: boolean) {
