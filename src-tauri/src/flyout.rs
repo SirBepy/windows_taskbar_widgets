@@ -165,8 +165,10 @@ pub fn open_flyout(
     if let Ok(mut anchor) = CURRENT_ANCHOR.lock() {
         *anchor = Some(window.label().to_string());
     }
-    app.emit_to("flyout", "flyout-show", show).map_err(|e| e.to_string())?;
+    // Show before emitting: the panel starts collapsed and invisible, and the page times its
+    // grow from its own painted frames, so the window must already be coming up by then.
     fly.show().map_err(|e| e.to_string())?;
+    app.emit_to("flyout", "flyout-show", show).map_err(|e| e.to_string())?;
 
     // Bumping POLL_GEN here is also what makes a second open_flyout from a different
     // strip safe: any loop from a prior open reads its stale gen next tick and exits,

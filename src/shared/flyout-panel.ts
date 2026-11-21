@@ -95,6 +95,8 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
   let box: PanelBox | null = null;
   let open = false;
   let hideTimer: number | undefined;
+  /** Counts every show/hide, so a first open still waiting on its frames can tell a later call superseded it. */
+  let showToken = 0;
 
   const rows = (root: HTMLElement) => Array.from(root.children) as HTMLElement[];
 
@@ -172,28 +174,42 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       window.clearTimeout(hideTimer);
       hideTimer = undefined;
       const wasOpen = open;
+      const token = ++showToken;
       box = panelBox(p);
-      if (!wasOpen) {
-        // First open: place the collapsed box without a sideways animation, then grow it.
-        transitions(false, false);
-        panel.style.left = `${box.left}px`;
-        panel.style.width = `${box.width}px`;
-        panel.style.height = "0px";
-        panel.style.opacity = "0";
-        panel.style.visibility = "visible";
-        void panel.offsetHeight;
+      const grow = () => {
+        transitions(true, wasOpen);
+        panel.style.left = `${box!.left}px`;
+        panel.style.width = `${box!.width}px`;
+        panel.style.height = `${box!.height}px`;
+        panel.style.opacity = "1";
+        controller.show(p.widget_id);
+      };
+      open = true;
+      if (wasOpen) {
+        grow();
+        return;
       }
-      transitions(true, wasOpen);
+      // First open: place the collapsed box without a sideways animation. The native window is
+      // still being shown at this point, so the grow and the row rise wait for two painted
+      // frames; started now, they would run unseen and the content would already be up when
+      // the window appears.
+      transitions(false, false);
       panel.style.left = `${box.left}px`;
       panel.style.width = `${box.width}px`;
-      panel.style.height = `${box.height}px`;
-      panel.style.opacity = "1";
-      open = true;
-      controller.show(p.widget_id);
+      panel.style.height = "0px";
+      panel.style.opacity = "0";
+      panel.style.visibility = "visible";
+      void panel.offsetHeight;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (token === showToken && open) grow();
+        }),
+      );
     },
 
     hide(): void {
       if (!open) return;
+      showToken++;
       open = false;
       // Unmounting now, not after the animation: it is what stops the widget's polling.
       controller.hide();
