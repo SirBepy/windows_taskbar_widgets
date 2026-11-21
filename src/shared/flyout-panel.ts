@@ -68,6 +68,16 @@ export function rowStart(
 /** How long after mount a newly added row still counts as part of the swap. */
 const LATE_ROW_WINDOW_MS = 1500;
 
+/**
+ * Pure: how long after mount the layer must not show a scrollbar. A row held at translateY(9px)
+ * counts as scrollable overflow, so an exactly-fitted layer (conductor measures its content to
+ * the pixel) would show a scrollbar over its still-invisible rows for the whole resize, and
+ * again while the last late row rises.
+ */
+export function scrollLockMs(t: { rise: number }): number {
+  return LATE_ROW_WINDOW_MS + t.rise + ROW_STAGGER_MS * 8;
+}
+
 export interface FlyoutPanelDeps {
   panel: HTMLElement;
   mountWidget: (id: string, root: HTMLElement) => (() => void) | null;
@@ -117,6 +127,8 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       fade.onfinish = () => old.remove();
       window.setTimeout(() => old.remove(), t.fadeOut + 60);
     }
+    next.style.overflowY = "hidden";
+    window.setTimeout(() => (next.style.overflowY = ""), scrollLockMs(t));
     const mountedAt = performance.now();
     let prevStart: number | null = null;
     const rise = (row: HTMLElement) => {

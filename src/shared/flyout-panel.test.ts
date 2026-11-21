@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLYOUT_INSET_PX, panelBox, rowStart, swapTimeline } from "./flyout-panel";
+import { FLYOUT_INSET_PX, panelBox, rowStart, scrollLockMs, swapTimeline } from "./flyout-panel";
 
 describe("rowStart", () => {
   const t = { riseDelay: 120 };
@@ -47,6 +47,15 @@ describe("panelBox", () => {
     expect(b.height).toBe(2);
     expect(b.innerWidth).toBe(0);
     expect(b.innerHeight).toBe(0);
+  });
+});
+
+describe("scrollLockMs", () => {
+  // Rows are held at translateY until their slot, so the lock must outlast the whole sequence:
+  // the resize, the last late row's start and its rise.
+  it("outlasts the resize and the last row's rise", () => {
+    const t = swapTimeline(300);
+    expect(scrollLockMs(t)).toBeGreaterThan(t.riseDelay + t.rise);
   });
 });
 
