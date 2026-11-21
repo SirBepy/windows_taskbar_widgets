@@ -51,17 +51,18 @@ describe("panelBox", () => {
 });
 
 describe("swapTimeline", () => {
-  it("starts the new rows only once the old ones have faded", () => {
-    const t = swapTimeline(300, true);
+  it("fades the old rows out within the resize", () => {
+    const t = swapTimeline(300);
     expect(t.fadeOut).toBe(120);
-    expect(t.riseDelay).toBe(t.fadeOut);
+    expect(t.fadeOut).toBeLessThan(t.riseDelay);
   });
 
-  it("rises sooner when there is nothing to fade out", () => {
-    expect(swapTimeline(300, false).riseDelay).toBeLessThan(swapTimeline(300, true).riseDelay);
+  // The panel's own resize takes the full duration; rows rising earlier land in a half-sized box.
+  it("starts the new rows only once the resize has finished", () => {
+    expect(swapTimeline(300).riseDelay).toBe(300);
   });
 
   it("collapses to zero for reduced motion", () => {
-    expect(swapTimeline(0, true)).toEqual({ fadeOut: 0, riseDelay: 0, rise: 0 });
+    expect(swapTimeline(0)).toEqual({ fadeOut: 0, riseDelay: 0, rise: 0 });
   });
 });

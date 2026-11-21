@@ -38,13 +38,14 @@ export function panelBox(p: PanelShow): PanelBox {
   };
 }
 
-/** Pure: one content swap in ms. The old rows fade out first, then the new rows rise in. */
-export function swapTimeline(durMs: number, hadOldContent: boolean) {
-  const fadeOut = Math.round(durMs * 0.4);
+/**
+ * Pure: one content swap in ms. The old rows fade out while the panel resizes, and the new
+ * rows only start rising once the resize has finished, so content never lands in a half-sized box.
+ */
+export function swapTimeline(durMs: number) {
   return {
-    fadeOut,
-    // With nothing to fade out the panel is still growing, so rows start on its way up.
-    riseDelay: hadOldContent ? fadeOut : Math.round(durMs * 0.25),
+    fadeOut: Math.round(durMs * 0.4),
+    riseDelay: durMs,
     rise: Math.round(durMs * 0.75),
   };
 }
@@ -110,7 +111,7 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       old?.remove();
       return;
     }
-    const t = swapTimeline(d, old !== null);
+    const t = swapTimeline(d);
     if (old) {
       const fade = old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: t.fadeOut, fill: "forwards" });
       fade.onfinish = () => old.remove();
