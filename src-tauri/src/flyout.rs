@@ -268,7 +268,8 @@ pub fn close_flyout(app: AppHandle) {
 
 /// Cursor-polls while the flyout is open: stays open as long as the pointer is
 /// within the strip or the panel (padded so the strip-to-flyout gap doesn't
-/// flicker-close), closes once cold for COLD_CLOSE_MS. Also makes the window
+/// flicker-close), closes once cold for COLD_CLOSE_MS, or at once when it went
+/// cold within OPENING_MS of the open (see `cold_close_delay`). Also makes the window
 /// click-through except over the panel, since the window is far bigger than it.
 #[cfg(target_os = "windows")]
 fn spawn_poll_loop(app: AppHandle, gen: u64, strip_label: String) {
