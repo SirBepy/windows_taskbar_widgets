@@ -10,6 +10,8 @@ export interface PanelShow {
 
 export const FLYOUT_MS = 300;
 export const FLYOUT_EASE = "cubic-bezier(.65, 0, .35, 1)";
+/** A box retargeted mid-resize: in-out would restart from zero velocity and stall, so it starts fast. */
+export const FLYOUT_RETARGET_EASE = "cubic-bezier(.2, .75, .3, 1)";
 const ROW_STAGGER_MS = 26;
 const ROW_RISE_PX = 9;
 /** `.flyout-body`'s padding. A widget's declared flyout dims include it, so the visible panel is inset. */
@@ -48,6 +50,19 @@ export function swapTimeline(durMs: number) {
     riseDelay: durMs,
     rise: Math.round(durMs * 0.75),
   };
+}
+
+/** Pure: the box easing for a change that lands while the previous resize is still running. */
+export function panelEase(resizing: boolean): string {
+  return resizing ? FLYOUT_RETARGET_EASE : FLYOUT_EASE;
+}
+
+/**
+ * Pure: whether a layer being replaced can simply vanish. Until its rows start rising nothing of
+ * it is visible, so a fade would only keep an invisible layer stacked under the next one.
+ */
+export function layerIsBlank(ageMs: number, t: { riseDelay: number }): boolean {
+  return ageMs < t.riseDelay;
 }
 
 /**
@@ -92,11 +107,16 @@ export interface FlyoutPanelDeps {
 export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelDeps) {
   const duration = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : FLYOUT_MS);
   let layer: HTMLElement | null = null;
+  let layerBornAt = 0;
   let box: PanelBox | null = null;
   let open = false;
   let hideTimer: number | undefined;
   /** Counts every show/hide, so a first open still waiting on its frames can tell a later call superseded it. */
   let showToken = 0;
+  /** A first open that has not grown yet: the panel is still collapsed and invisible. */
+  let pendingFirst = false;
+  /** When the running box resize ends (performance.now() scale). */
+  let resizeEndsAt = 0;
 
   const rows = (root: HTMLElement) => Array.from(root.children) as HTMLElement[];
 
@@ -104,6 +124,7 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
   // wiped node renders into detached DOM (blank panel).
   const controller = createFlyoutController((id) => {
     const old = layer;
+    const oldAge = performance.now() - layerBornAt;
     const next = document.createElement("div");
     next.className = "flyout-content fly-layer";
     // Sized to the target, not left at the panel's animating size: a layer that tracked the
@@ -112,19 +133,22 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
     next.style.height = `${box!.innerHeight}px`;
     panel.appendChild(next);
     layer = next;
+    layerBornAt = performance.now();
     const cleanup = mountWidget(id, next);
-    swapRows(old, next);
+    swapRows(old, oldAge, next);
     return cleanup;
   });
 
-  function swapRows(old: HTMLElement | null, next: HTMLElement) {
+  function swapRows(old: HTMLElement | null, oldAge: number, next: HTMLElement) {
     const d = duration();
     if (d === 0) {
       old?.remove();
       return;
     }
     const t = swapTimeline(d);
-    if (old) {
+    if (old && layerIsBlank(oldAge, t)) {
+      old.remove();
+    } else if (old) {
       const fade = old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: t.fadeOut, fill: "forwards" });
       fade.onfinish = () => old.remove();
       window.setTimeout(() => old.remove(), t.fadeOut + 60);
@@ -164,8 +188,10 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       panel.style.transition = "none";
       return;
     }
-    const props = [`height ${d}ms ${FLYOUT_EASE}`, `opacity ${Math.round(d * 0.7)}ms ease`];
-    if (glide) props.push(`left ${d}ms ${FLYOUT_EASE}`, `width ${d}ms ${FLYOUT_EASE}`);
+    const ease = panelEase(performance.now() < resizeEndsAt);
+    resizeEndsAt = performance.now() + d;
+    const props = [`height ${d}ms ${ease}`, `opacity ${Math.round(d * 0.7)}ms ease`];
+    if (glide) props.push(`left ${d}ms ${ease}`, `width ${d}ms ${ease}`);
     panel.style.transition = props.join(", ");
   }
 
@@ -173,10 +199,13 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
     show(p: PanelShow): void {
       window.clearTimeout(hideTimer);
       hideTimer = undefined;
-      const wasOpen = open;
+      // A first open still waiting for its frames is still a first open: the panel is collapsed
+      // and invisible, so the new box is just placed again instead of gliding from the old one.
+      const wasOpen = open && !pendingFirst;
       const token = ++showToken;
       box = panelBox(p);
       const grow = () => {
+        pendingFirst = false;
         transitions(true, wasOpen);
         panel.style.left = `${box!.left}px`;
         panel.style.width = `${box!.width}px`;
@@ -193,6 +222,7 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
       // still being shown at this point, so the grow and the row rise wait for two painted
       // frames; started now, they would run unseen and the content would already be up when
       // the window appears.
+      pendingFirst = true;
       transitions(false, false);
       panel.style.left = `${box.left}px`;
       panel.style.width = `${box.width}px`;
@@ -210,6 +240,7 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
     hide(): void {
       if (!open) return;
       showToken++;
+      pendingFirst = false;
       open = false;
       // Unmounting now, not after the animation: it is what stops the widget's polling.
       controller.hide();

@@ -45,6 +45,10 @@ static POLL_GEN: AtomicU64 = AtomicU64::new(0);
 // must not click through the panel for a visible beat.
 const POLL_INTERVAL_MS: u64 = 40;
 const COLD_CLOSE_MS: u64 = 400;
+/// How long after an open the panel is still resizing and its rows have not started to rise
+/// (the page's 300 ms resize plus the frames it waits for). A pointer that leaves within this
+/// window never got to see content, so the close is immediate instead of waiting out `COLD_CLOSE_MS`.
+const OPENING_MS: u64 = 350;
 const HOVER_PAD_PX: i32 = 10;
 const CLICK_PAD_PX: i32 = 2;
 const FLYOUT_GAP_CSS: f64 = 8.0;
@@ -145,10 +149,16 @@ pub fn open_flyout(
     let win_h = prev.map_or(h, |p| p.win_h.max(h));
     let hot = prev.map_or(panel, |p| p.hot.union(panel));
 
-    fly.set_size(PhysicalSize::new((win_right - win_left).max(w) as u32, win_h as u32))
-        .map_err(|e| e.to_string())?;
-    fly.set_position(PhysicalPosition::new(win_left, panel_bottom - win_h))
-        .map_err(|e| e.to_string())?;
+    // Only touch the native window when its box changes: re-applying the same size makes
+    // WebView2 relayout mid-animation, which shows as a hitch in the panel's resize.
+    let want_size = PhysicalSize::new((win_right - win_left).max(w) as u32, win_h as u32);
+    let want_pos = PhysicalPosition::new(win_left, panel_bottom - win_h);
+    if fly.outer_size().map_or(true, |s| s != want_size) {
+        fly.set_size(want_size).map_err(|e| e.to_string())?;
+    }
+    if fly.outer_position().map_or(true, |p| p != want_pos) {
+        fly.set_position(want_pos).map_err(|e| e.to_string())?;
+    }
 
     let show = FlyoutShow {
         widget_id,
@@ -182,6 +192,15 @@ pub fn open_flyout(
 #[tauri::command]
 pub fn get_current_flyout() -> Option<FlyoutShow> {
     CURRENT.lock().ok().and_then(|c| c.clone())
+}
+
+/// How long a cold pointer must stay cold before closing, `since_open` after the last open.
+fn cold_close_delay(since_open: Duration) -> Duration {
+    if since_open < Duration::from_millis(OPENING_MS) {
+        Duration::ZERO
+    } else {
+        Duration::from_millis(COLD_CLOSE_MS)
+    }
 }
 
 /// True while a flyout is open (its close animation does not count).
@@ -267,6 +286,7 @@ fn spawn_poll_loop(app: AppHandle, gen: u64, strip_label: String) {
     }
 
     std::thread::spawn(move || {
+        let opened_at = Instant::now();
         let mut cold_since: Option<Instant> = None;
         let mut click_through: Option<bool> = None;
         loop {
@@ -297,7 +317,7 @@ fn spawn_poll_loop(app: AppHandle, gen: u64, strip_label: String) {
                 continue;
             }
             let since = *cold_since.get_or_insert(Instant::now());
-            if since.elapsed() >= Duration::from_millis(COLD_CLOSE_MS) {
+            if since.elapsed() >= cold_close_delay(since.duration_since(opened_at)) {
                 if POLL_GEN.load(Ordering::SeqCst) == gen {
                     hide(&app);
                 }
@@ -325,6 +345,17 @@ mod tests {
 
     fn rect() -> Rect {
         Rect { left: 10, top: 20, right: 110, bottom: 220 }
+    }
+
+    #[test]
+    fn cold_pointer_closes_at_once_while_the_panel_is_still_opening() {
+        assert_eq!(cold_close_delay(Duration::from_millis(0)), Duration::ZERO);
+        assert_eq!(cold_close_delay(Duration::from_millis(OPENING_MS - 1)), Duration::ZERO);
+    }
+
+    #[test]
+    fn cold_pointer_waits_out_the_dismiss_delay_once_open() {
+        assert_eq!(cold_close_delay(Duration::from_millis(OPENING_MS)), Duration::from_millis(COLD_CLOSE_MS));
     }
 
     #[test]

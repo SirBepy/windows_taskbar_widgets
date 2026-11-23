@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { FLYOUT_INSET_PX, panelBox, rowStart, scrollLockMs, swapTimeline } from "./flyout-panel";
+import {
+  FLYOUT_EASE,
+  FLYOUT_INSET_PX,
+  FLYOUT_RETARGET_EASE,
+  layerIsBlank,
+  panelBox,
+  panelEase,
+  rowStart,
+  scrollLockMs,
+  swapTimeline,
+} from "./flyout-panel";
 
 describe("rowStart", () => {
   const t = { riseDelay: 120 };
@@ -73,5 +83,29 @@ describe("swapTimeline", () => {
 
   it("collapses to zero for reduced motion", () => {
     expect(swapTimeline(0)).toEqual({ fadeOut: 0, riseDelay: 0, rise: 0 });
+  });
+});
+
+describe("panelEase", () => {
+  it("uses the in-out curve for a resize from rest", () => {
+    expect(panelEase(false)).toBe(FLYOUT_EASE);
+  });
+
+  // The regression: a box retargeted mid-resize with in-out restarted from zero velocity and stalled.
+  it("uses a curve that starts fast for a resize landing on a running one", () => {
+    expect(panelEase(true)).toBe(FLYOUT_RETARGET_EASE);
+  });
+});
+
+describe("layerIsBlank", () => {
+  const t = { riseDelay: 300 };
+
+  it("treats a layer whose rows have not started rising as nothing to fade", () => {
+    expect(layerIsBlank(0, t)).toBe(true);
+    expect(layerIsBlank(299, t)).toBe(true);
+  });
+
+  it("fades a layer once its rows are on screen", () => {
+    expect(layerIsBlank(300, t)).toBe(false);
   });
 });
