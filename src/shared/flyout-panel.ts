@@ -226,7 +226,5 @@ export function createFlyoutPanel({ panel, mountWidget, onHidden }: FlyoutPanelD
         onHidden();
       }, d + 30);
     },
-
-    isOpen: (): boolean => open,
   };
 }

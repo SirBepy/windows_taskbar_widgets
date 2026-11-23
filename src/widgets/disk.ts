@@ -80,8 +80,8 @@ export const diskWidget: TaskbarWidget = {
   id: "disk",
   name: "Disk",
   icon: "ph-hard-drives",
-  // Sized for 6 drives (a generous power-user max); beyond that #flyout's
-  // overflow-y:auto scrolls instead of resizing the window.
+  // Sized for 6 drives (a generous power-user max); beyond that the panel's
+  // .fly-layer scrolls (overflow-y:auto) instead of resizing the window.
   flyout: { widthCss: 285, heightCss: 245 },
   menuItems: () => [{ id: "open-drive", label: "Open in Explorer" }],
   onMenuAction: (id) => {
