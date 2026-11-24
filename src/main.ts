@@ -19,8 +19,15 @@ import {
 reportErrors("strip");
 
 // Skip in dev: the dev binary lags the released version, so check() would always
-// "find" an update and nag. Reads __kit_auto_update from settings for the mode.
-if (!import.meta.env.DEV) runAutoUpdateCheck();
+// "find" an update and nag. Reads __kit_auto_update from settings for the mode. Every strip
+// window runs this file, so Rust hands the check to one of them per app run.
+if (!import.meta.env.DEV) {
+  invoke<boolean>("claim_update_check")
+    .then((first) => {
+      if (first) return runAutoUpdateCheck();
+    })
+    .catch(() => {});
+}
 
 // No native context/inspect menu anywhere in this app's webviews; tiles wire
 // their own native menu below via show_tile_menu.

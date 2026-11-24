@@ -25,6 +25,7 @@ mod topmost;
 mod window_park;
 
 use settings::{Settings, SettingsState};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{
     image::Image,
@@ -103,6 +104,21 @@ fn get_version_info() -> VersionInfo {
 #[tauri::command]
 fn set_strip_width(app: AppHandle, window: tauri::Window, width_css: f64) -> Result<(), String> {
     taskbar::position_strip(&app, &window, width_css.max(1.0)).map_err(|e| e.to_string())
+}
+
+/// Flips `flag` to claimed and says whether this call was the one that did it.
+fn claim_once(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
+}
+
+static UPDATE_CHECK_CLAIMED: AtomicBool = AtomicBool::new(false);
+
+/// True for the first caller per app run. Every strip window (one per monitor, rebuilt on
+/// display changes) loads main.ts, so without this each one raised its own "Update available"
+/// dialog, over and over.
+#[tauri::command]
+fn claim_update_check() -> bool {
+    claim_once(&UPDATE_CHECK_CLAIMED)
 }
 
 /// Webview consoles aren't visible in supervised dev runs; both pages forward
@@ -310,6 +326,7 @@ pub fn run() {
             get_version_info,
             set_strip_width,
             log_js,
+            claim_update_check,
             autostart::get_autostart,
             autostart::set_autostart,
             flyout::open_flyout,
@@ -354,4 +371,17 @@ pub fn run() {
                 strip::drain_pending(app);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claim_once_succeeds_only_for_the_first_caller() {
+        let flag = AtomicBool::new(false);
+        assert!(claim_once(&flag));
+        assert!(!claim_once(&flag));
+        assert!(!claim_once(&flag));
+    }
 }
